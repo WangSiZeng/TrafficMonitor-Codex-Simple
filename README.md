@@ -46,8 +46,12 @@ V0.1.2 在前两个版本的代码基础上继续迭代。以上版本及开发�
 
 需要 64 位 Windows、支持插件 API 7 的 **64 位 TrafficMonitor**，以及本机可运行的官方原生 `codex.exe`。请先在 Codex 中使用需要查询额度的 ChatGPT 账号登录。
 
+**推荐直接下载 [CodexUsage.dll](https://github.com/WangSiZeng/TrafficMonitor-Codex-Simple/releases/latest/download/CodexUsage.dll)**，无需下载源码或完整 ZIP。
+
+如需离线说明、截图、示例配置及许可文件，可选择 [Release 中的完整 ZIP](https://github.com/WangSiZeng/TrafficMonitor-Codex-Simple/releases/latest)。单 DLL 与同版 ZIP 内的 DLL 完全一致。
+
 1. 退出 TrafficMonitor。
-2. 将构建或打包得到的 `CodexUsage.dll` 复制到 TrafficMonitor 的 `plugins` 目录。
+2. 将下载得到的 `CodexUsage.dll` 复制到 TrafficMonitor 的 `plugins` 目录。
 3. 重新启动 TrafficMonitor，在“其他功能 → 插件管理”确认“Codex 额度”已加载。
 4. 在任务栏的显示设置中勾选 `Codex 5小时额度` 和 `Codex 7天额度`。
 5. 在额度显示区域右键，通过“Codex 额度 → 选项”设置时间显示、时间字号及资源占用图。
@@ -63,6 +67,8 @@ TrafficMonitor/
 ```
 
 实际配置目录由 TrafficMonitor 提供，非便携模式下可能与 DLL 目录不同。手动配置时，将仓库中的 `CodexUsage.example.ini` 复制到该配置目录并重命名为 `CodexUsage.ini`。
+
+首次安装仅需放置 DLL，不必预先创建 INI。插件已静态链接 C/C++ 运行库和 JSON 解析器，不需要随附其他插件运行库 DLL。Release 中的 `.sha256` 文件用于可选的完整性核验；`CodexUsage-LICENSE.txt` 提供许可及第三方声明，不是运行依赖。再分发时请保留适用的许可声明。
 
 升级时退出 TrafficMonitor 后替换 DLL，保留已有配置即可。x86 TrafficMonitor 不能加载本项目的 x64 DLL。
 
@@ -209,9 +215,11 @@ build\backend_tests.exe --live "C:\Tools\Codex\codex.exe"
 ```powershell
 .\scripts\check-release.ps1
 .\scripts\package.ps1
+# 仅生成独立 DLL、校验文件和许可声明，不重新生成 ZIP：
+.\scripts\package.ps1 -DllOnly
 ```
 
-隐私检查针对 Git 暂存区的发布文件及已构建 DLL；执行前应先暂存计划发布的修改。打包输出 ZIP 与 SHA-256 校验文件，包含 DLL、示例配置、README、截图和许可文件，不包含真实配置或凭据。DLL 未进行代码签名。
+隐私检查针对 Git 暂存区的发布文件及已构建 DLL；执行前应先暂存计划发布的修改。打包同时输出独立 DLL、配套校验与许可文件，以及包含 DLL、示例配置、README、截图和许可文件的 ZIP；不包含真实配置或凭据。DLL 未进行代码签名。
 
 GitHub Actions 配置仅作为 `ci/build.yml.example` 保存，不会自动执行。需要启用时，将其放入 `.github/workflows/build.yml`，并使用具有相应 workflow 权限的凭据提交。
 

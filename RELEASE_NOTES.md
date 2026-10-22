@@ -16,7 +16,18 @@
 - Local conversation-file fallback is opt-in; historical data is clearly marked.
 - No plugin telemetry, raw-response logging or bundled authentication files.
 
-Install `CodexUsage.dll` into TrafficMonitor's `plugins` folder and restart.
+## 下载安装
+
+推荐直接下载本页附件中的 **`CodexUsage.dll`**。退出 TrafficMonitor，将其放入 `TrafficMonitor.exe` 旁的 `plugins` 文件夹，然后重新启动并启用两个 Codex 显示项目即可。
+
+首次安装无需预先创建 INI，也不需要随附其他插件依赖 DLL。需要事先安装 x64 TrafficMonitor 和官方 Codex，并已在 Codex 中用 ChatGPT 账号登录。
+
+- `CodexUsage.dll`：可直接安装的 Windows x64 插件，与完整 ZIP 内的 DLL 相同。
+- `CodexUsage.dll.sha256`：独立 DLL 的 SHA-256 校验文件。
+- `CodexUsage-LICENSE.txt`：许可证、免责声明及第三方声明；不属于运行依赖，再分发时请保留适用声明。
+- `TrafficMonitor-Codex-Simple-0.1.2-win64.zip`：包含插件、示例配置、文档、截图及许可文件的完整包。
+- `.zip.sha256`：完整包的 SHA-256 校验文件。
+
 Copy `CodexUsage.example.ini` to the plugin configuration directory as `CodexUsage.ini` if desired.
 Set `refresh_seconds=120` for a two-minute interval.
 

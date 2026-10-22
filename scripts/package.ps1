@@ -1,8 +1,23 @@
+param([switch]$DllOnly)
+
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
 $version = '0.1.2'
 $projectName = 'TrafficMonitor-Codex-Simple'
 $distribution = Join-Path $repository 'dist'
+New-Item -ItemType Directory -Force -Path $distribution | Out-Null
+$standaloneDll = Join-Path $distribution 'CodexUsage.dll'
+Copy-Item -LiteralPath (Join-Path $repository 'build/CodexUsage.dll') -Destination $standaloneDll -Force
+$dllHash = (Get-FileHash -LiteralPath $standaloneDll -Algorithm SHA256).Hash.ToLowerInvariant()
+"$dllHash  CodexUsage.dll" | Set-Content -LiteralPath ($standaloneDll + '.sha256') -Encoding ASCII
+$licenseText = @('LICENSE', 'DISCLAIMER.md', 'THIRD_PARTY_NOTICES.md', 'third_party/yyjson/LICENSE') | ForEach-Object {
+    "=== $_ ===`r`n" + [IO.File]::ReadAllText((Join-Path $repository $_))
+}
+$licenseText -join "`r`n`r`n" | Set-Content -LiteralPath (Join-Path $distribution 'CodexUsage-LICENSE.txt') -Encoding UTF8
+if ($DllOnly) {
+    Write-Output 'Created CodexUsage.dll, its SHA-256 file and license notices.'
+    return
+}
 $package = Join-Path $distribution "$projectName-$version-win64"
 New-Item -ItemType Directory -Force -Path $package | Out-Null
 $files = @('build/CodexUsage.dll', 'CodexUsage.example.ini', 'README.md', 'LICENSE', 'DISCLAIMER.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md')
