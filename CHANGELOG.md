@@ -6,6 +6,7 @@
 
 - Restore full default labels, `Codex 5h额度:` and `Codex 7d额度:`, while preserving saved custom text.
 - Expand the Chinese README with actual screenshots and the implemented query, refresh, configuration and proxy behavior.
+- Clarify that the settings dialog's remaining/used selection controls only the resource graph, not the quota text.
 
 - Add an optional smaller reset-time display after each quota percentage, configurable in plugin settings.
 - Preserve the original ChatGPT logo and host label, font, colors and value alignment; allow a separate freely editable timestamp size.

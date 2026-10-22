@@ -9,7 +9,7 @@
 - V0.1.2：由 **Codex 独立完成**，在前两版基础上添加截止时间显示及其开关、字号控制，完成 GitHub 整理上传。
 
 - Queries the official local Codex app-server; defaults to a 300-second interval.
-- Supports remaining/used percentages, resource graphs and an optional smaller reset timestamp.
+- Displays remaining-quota text and an optional smaller reset timestamp. The settings dialog's remaining/used controls affect only the resource graph, not the quota text.
 - Preserves host display labels, fonts, colors and alignment; saved label edits synchronize without restarting.
 - Timestamp font size is freely editable with a numeric input and up/down arrows; settings are centered on screen.
 - Hardened JSON parsing, absolute executable resolution, inherited handles and DLL lifetime.
