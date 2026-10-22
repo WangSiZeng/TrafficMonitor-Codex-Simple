@@ -122,7 +122,7 @@ public:
 
     const wchar_t* GetItemLableText() const override
     {
-        return m_is_primary ? L"5h" : L"7d";
+        return DefaultDisplayLabel(m_is_primary);
     }
 
     const wchar_t* GetItemValueText() const override;
@@ -187,7 +187,7 @@ public:
         case TMI_COPYRIGHT:
             return L"Copyright (C) 2026";
         case TMI_VERSION:
-            return L"1.2.0";
+            return L"0.1.2";
         default:
             break;
         }
@@ -466,7 +466,8 @@ private:
     mutable ULONGLONG m_next_label_check = 0;
     mutable WIN32_FILE_ATTRIBUTE_DATA m_label_version{};
     mutable bool m_has_label_version = false;
-    mutable std::wstring m_taskbar_labels[2]{L"5h", L"7d"}, m_main_labels[2]{L"5h", L"7d"};
+    mutable std::wstring m_taskbar_labels[2]{DefaultDisplayLabel(true), DefaultDisplayLabel(false)};
+    mutable std::wstring m_main_labels[2]{DefaultDisplayLabel(true), DefaultDisplayLabel(false)};
     std::atomic<DWORD> m_label_color{ CLR_INVALID }, m_value_color{ CLR_INVALID };
     OptionReturn m_option_result = OR_OPTION_UNCHANGED;
     int m_dlg_dpi = 96;

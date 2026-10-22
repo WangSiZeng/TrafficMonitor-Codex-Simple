@@ -124,6 +124,9 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring label;
     Check(ReadDisplayPreference(host_ini, L"plugin_display_str_taskbar_window", L"codex_usage_5h", label) && label == taskbar_labels[0], "preserve original custom Codex prefix");
     Check(ReadDisplayPreference(host_ini, L"plugin_display_str_main_window", L"codex_usage_5h", label) && label.empty(), "preserve intentionally empty prefix");
+    std::wstring taskbar_defaults[2], main_defaults[2];
+    Check(ReadDisplayLabels(host_ini, taskbar_defaults, main_defaults) && main_defaults[0].empty() &&
+        main_defaults[1] == L"Codex 7d额度:", "missing saved label uses full Codex default while explicit empty labels stay empty");
     Check(ReadRefreshMilliseconds(ini) == 300000, "default interval 300 seconds");
     const wchar_t* values[] = {L"120", L"1", L"-1", L"999999999999999999999999", L"broken"};
     const DWORD expected[] = {120000, 30000, 30000, 86400000, 300000};
@@ -161,6 +164,9 @@ int wmain(int argc, wchar_t** argv) {
         if (get_instance) {
             Host host(plugin_directory);
             auto* plugin = get_instance();
+            Check(wcscmp(plugin->GetItem(0)->GetItemLableText(), L"Codex 5h额度:") == 0 &&
+                wcscmp(plugin->GetItem(1)->GetItemLableText(), L"Codex 7d额度:") == 0,
+                "native display defaults include Codex and quota labels");
             Check(!plugin->GetItem(0)->IsCustomDraw(), "reset-time display is opt-in");
             plugin->OnInitialize(&host);
             Check(plugin->GetItem(0)->IsCustomDraw(), "reset-time INI option enables custom drawing");

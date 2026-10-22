@@ -296,10 +296,9 @@ bool ReadDisplayLabels(const std::wstring& path, std::wstring (&taskbar)[2], std
     std::wstring text;
     if (!ReadPreferenceText(path, text)) return false;
     const wchar_t* ids[] = {L"codex_usage_5h", L"codex_usage_7d"};
-    const wchar_t* defaults[] = {L"5h", L"7d"};
     for (size_t i = 0; i < 2; ++i) {
-        if (!ParsePreference(text, L"plugin_display_str_taskbar_window", ids[i], taskbar[i])) taskbar[i] = defaults[i];
-        if (!ParsePreference(text, L"plugin_display_str_main_window", ids[i], main_window[i])) main_window[i] = defaults[i];
+        if (!ParsePreference(text, L"plugin_display_str_taskbar_window", ids[i], taskbar[i])) taskbar[i] = DefaultDisplayLabel(i == 0);
+        if (!ParsePreference(text, L"plugin_display_str_main_window", ids[i], main_window[i])) main_window[i] = DefaultDisplayLabel(i == 0);
     }
     return true;
 }
@@ -475,7 +474,7 @@ bool FetchFromAppServer(const std::wstring& executable, UsageData& data) {
     PipeReader reader(parent_out.get());
     const ULONGLONG deadline = GetTickCount64() + 20000;
     bool initialized = false, success = false;
-    if (WriteMessage(parent_in.get(), "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"trafficmonitor_codex_usage\",\"version\":\"1.2.0\"}}}\n")) {
+    if (WriteMessage(parent_in.get(), "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"trafficmonitor_codex_usage\",\"version\":\"0.1.2\"}}}\n")) {
         std::string line;
         while (reader.NextLine(line, deadline)) {
             if (ParseRpcReply(line, 1, nullptr)) { initialized = true; break; }

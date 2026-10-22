@@ -4,6 +4,10 @@
 
 namespace codex_usage {
 
+inline constexpr const wchar_t* DefaultDisplayLabel(bool primary) noexcept {
+    return primary ? L"Codex 5h额度:" : L"Codex 7d额度:";
+}
+
 struct QuotaWindow {
     bool valid = false;
     double used_percent = 0;

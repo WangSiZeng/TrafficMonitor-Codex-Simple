@@ -1,88 +1,245 @@
-# CodexUsage for TrafficMonitor
+# TrafficMonitor Codex Simple 插件
 
-在 Windows 任务栏显示 Codex 的 **5 小时 / 7 天额度**。默认显示剩余百分比，支持资源占用图和已用/剩余模式。
+一个用于 Windows **TrafficMonitor** 的原生 x64 插件，专注于 **Codex 额度和截止（重置）时间** 的简单显示：任务栏显示 5 小时 / 7 天额度百分比，可追加截止时间并单独调整时间字号。资源占用图用于可视化同一份额度数据。
 
-这是社区插件，与 OpenAI、TrafficMonitor 官方无隶属关系。
+这是社区插件，与 OpenAI、TrafficMonitor 官方无隶属关系。当前版本为 **V0.1.2**。
 
-## 开发说明
+## 版本与开发说明
 
-本项目的代码基础由 **deepseek flash4.1** 完成，后期由 **Codex** 接管进行编写和完善。
+| 版本 | 开发归属 | 功能与工作 |
+| --- | --- | --- |
+| V0.1.0 | **deepseek flash V4.1 独立完成** | 第一版，仅提供额度显示功能 |
+| V0.1.1 | **deepseek flash V4.1 独立完成** | 在额度显示基础上，添加资源占用图的控制功能 |
+| V0.1.2（当前） | **Codex 独立完成** | 添加额度截止时间的显示和控制功能，包括显示开关与时间字号调整；完成后续整理、技术文档、截图及 GitHub 上传 |
 
-## 安装
+V0.1.2 在前两个版本的代码基础上继续迭代。以上版本及开发归属按项目维护者提供的历史记录说明。
 
-1. 使用 64 位 Windows 和支持插件 API 7 的 64 位 TrafficMonitor。
-2. 安装官方 Codex CLI 或 Codex 桌面应用，并在本机使用需要查询的 ChatGPT 账号登录。
-3. 将发布包中的 `CodexUsage.dll` 放入 TrafficMonitor 的 `plugins` 目录，重启 TrafficMonitor。
-4. 在任务栏窗口的“显示设置”中勾选 `Codex 5小时额度` 和 `Codex 7天额度`。
+## 实际效果
 
-鼠标悬停可查看数据来源、时间和重置时间。在 `5h` / `7d` 显示区域右键，会出现 TrafficMonitor 自动提供的“Codex 额度”菜单；其“选项”可设置时间显示、时间字号及资源占用图。
+### 任务栏显示
+
+![TrafficMonitor 中的 Codex 5 小时与 7 天额度及重置时间](docs/images/taskbar-usage.png)
+
+前面的显示文本和额度百分比保留原有样式，重置时间追加在 `%` 后。5 小时窗口使用 `HH:mm`，7 天窗口使用 `MM-dd HH:mm`，均为本机时区。图中的额度和时间是截图时的实际读数，不代表当前账号状态。
+
+### 插件设置
+
+![Codex 额度插件的时间显示、字号和资源占用图设置](docs/images/plugin-settings.png)
+
+时间显示与字号设置位于资源占用图设置之前。字号可直接输入正整数，也可通过右侧上下箭头调整；它只影响时间文字。设置窗口在当前显示器工作区居中打开。
+
+## 显示项目
+
+| TrafficMonitor 中的项目名称 | 默认显示文本 | 内容 |
+| --- | --- | --- |
+| `Codex 5小时额度` | `Codex 5h额度:` | 300 分钟窗口的额度百分比，可追加重置时间 |
+| `Codex 7天额度` | `Codex 7d额度:` | 10080 分钟窗口的额度百分比，可追加重置日期及时间 |
+
+- 默认显示**剩余百分比**，即 `100 - usedPercent`；也可通过配置改为已用百分比。
+- 鼠标悬停可查看已用/剩余比例、重置时间、套餐、数据来源和数据时间。
+- 支持资源占用图，可独立选择显示已用或剩余额度。
+- `--` 表示该窗口尚无可用数据。历史数据在悬停说明中标注，百分比后不添加 `*` 等状态符号。
+
+## 环境要求与安装
+
+需要 64 位 Windows、支持插件 API 7 的 **64 位 TrafficMonitor**，以及本机可运行的官方原生 `codex.exe`。请先在 Codex 中使用需要查询额度的 ChatGPT 账号登录。
+
+1. 退出 TrafficMonitor。
+2. 将构建或打包得到的 `CodexUsage.dll` 复制到 TrafficMonitor 的 `plugins` 目录。
+3. 重新启动 TrafficMonitor，在“其他功能 → 插件管理”确认“Codex 额度”已加载。
+4. 在任务栏的显示设置中勾选 `Codex 5小时额度` 和 `Codex 7天额度`。
+5. 在额度显示区域右键，通过“Codex 额度 → 选项”设置时间显示、时间字号及资源占用图。
+
+便携安装的常见目录结构：
+
+```text
+TrafficMonitor/
+├─ TrafficMonitor.exe
+└─ plugins/
+   ├─ CodexUsage.dll
+   └─ CodexUsage.ini       # 可选配置，不包含登录令牌
+```
+
+实际配置目录由 TrafficMonitor 提供，非便携模式下可能与 DLL 目录不同。手动配置时，将仓库中的 `CodexUsage.example.ini` 复制到该配置目录并重命名为 `CodexUsage.ini`。
+
+升级时退出 TrafficMonitor 后替换 DLL，保留已有配置即可。x86 TrafficMonitor 不能加载本项目的 x64 DLL。
+
+## 数据来源与查询流程
+
+本插件通过**本机 Codex app-server 的 JSON-RPC 标准输入/输出协议**查询额度，流程如下：
+
+```text
+TrafficMonitor
+  └─ CodexUsage.dll 后台线程
+      └─ 启动本机 codex.exe app-server
+          ├─ initialize → 等待匹配的初始化响应
+          ├─ initialized
+          └─ account/rateLimits/read → 读取当前额度
+```
+
+每轮查询启动一个隐藏的子进程，读取结果后关闭输入管道并回收进程。本插件只发送初始化和额度读取请求，不创建会话、发送提示词、启动模型任务或兑换重置额度。
+
+### 额度解析
+
+| 返回字段 | 本插件的处理 |
+| --- | --- |
+| `rateLimitsByLimitId.codex` | 优先选择 Codex 对应的限额桶 |
+| `rateLimits` | 未提供 Codex 多桶结果时，兼容单桶返回；拒绝明确属于其他产品的限额 |
+| `windowDurationMins` / `window_minutes` | 按实际时长归类：300 分钟为 5 小时，10080 分钟为 7 天 |
+| `usedPercent` / `used_percent` | 校验 0～100 的有限数值，按显示模式转换为整数百分比 |
+| `resetsAt` / `resets_at` | 校验 Unix 时间戳，按本机时区格式化 |
+| 空缺或 `null` 窗口 | 两个窗口独立处理，缺失的一项显示 `--` |
+
+不假定 `primary` 必须是 5 小时、`secondary` 必须是 7 天，也不会将其他时长的限额误标为这两个窗口。
+
+### Codex 程序与登录状态
+
+未设置 `codex_path` 时，插件会检查当前用户的 Codex 桌面安装目录、注册的 Codex 应用包路径，以及 `PATH` 中的绝对目录。找不到程序时，可在 INI 中填写可信原生 `codex.exe` 的绝对路径。
+
+只支持 `.exe`，不将 `.cmd` / `.bat` 启动脚本当作 Codex，也不从当前工作目录搜索程序。通过 npm 安装后若只能找到 `codex.cmd`，需要定位该安装中的原生 `codex.exe`。
+
+认证、令牌存储、刷新以及向服务端发出请求，均由所启动的 Codex 负责。子进程继承 TrafficMonitor 的环境，包括 `CODEX_HOME`；请确保它与平时使用的 Codex 指向同一个账号和登录存储。切换账号后应重启 TrafficMonitor。
+
+本插件不直接读取 `auth.json`、提取令牌，也不自行请求 `chatgpt.com/backend-api/wham/usage`。API key 的计费额度不属于本插件支持的 ChatGPT 订阅额度。
+
+官方协议参考：[Codex app-server](https://learn.chatgpt.com/docs/app-server)。
+
+## 刷新与失败处理
+
+- 启动插件时立即发起一次后台查询。之后由 TrafficMonitor 的数据回调按 `refresh_seconds` 触发，默认 **300 秒**；实际触发时间受宿主回调调度影响。
+- `refresh_seconds=120` 有效，表示约每两分钟刷新一次。支持范围为 **30～86400 秒**；超出范围会限制到边界，无法解析的值回到默认值。
+- 同一时刻只运行一轮查询，不会在绘图函数里等待网络请求。协议响应等待上限为 20 秒，进程清理另有短暂等待。
+- 短暂失败时保留内存中的最近一次有效结果，在悬停说明中标为“历史数据”，保留原数据时间。恢复查询后更新为新结果。
+- 尚未获得有效结果时显示 `--`。仅因重置时间到达，不会自行推算额度已恢复为 100%。
+- 插件不将额度缓存写入磁盘，重启后重新获取。自动探测到的 Codex 桌面安装路径失效时，会重新探测；发现新路径后再尝试查询。
+
+### 可选的本地会话回退
+
+默认 `allow_local_fallback=0`，不读取本地会话。主动开启后，查询失败会尝试解析会话文件尾部的 `event_msg/token_count.rate_limits`；**仅在内存中没有任何有效额度时采用该快照**。
+
+这仍是历史快照，可能属于更早的会话或账号，不保证实时性。插件保留事件原时间，并在悬停说明中标为“历史数据”。需要准确当前额度时，应优先解决 app-server 查询问题。
 
 ## 配置
 
-将 `CodexUsage.example.ini` 复制为 **TrafficMonitor 插件配置目录**中的 `CodexUsage.ini`。配置目录由宿主提供，便携模式与非便携模式可能不同，并不一定是 DLL 所在目录。
+以下示例每 120 秒刷新一次，开启时间显示并将时间字号设为 8 磅：
 
 ```ini
 [config]
 refresh_seconds=120
 show_remaining=1
-graph_enabled=0
+show_reset_time=1
+time_font_size=8
+graph_enabled=1
 graph_mode=remaining
-show_reset_time=0
-time_font_size=10
 allow_local_fallback=0
+; 可选：可信原生程序的绝对路径
+; codex_path=C:\Tools\Codex\codex.exe
+; 可选：仅用于已开启的本地回退
+; sessions_dir=C:\Data\Codex\sessions
 ```
 
-- `refresh_seconds`：默认 300 秒，最小 30 秒，最大 86400 秒。`120` 表示约每两分钟触发一次后台查询。启动时立即查询一次。修改 INI 后重启 TrafficMonitor。
-- `show_remaining`：`1` 显示剩余；`0` 显示已用。
-- `graph_enabled`：是否启用资源占用图。
-- `graph_mode`：`remaining` 或 `used`，独立于文字显示模式。
-- `show_reset_time`：默认 `0`。可在插件设置中勾选“额度后显示重置时间”；开启后，在原有额度样式后追加时间，5 小时窗口显示 `HH:mm`，7 天窗口显示 `MM-dd HH:mm`，使用本机时区。
-- `time_font_size`：时间文字的字号，默认 10 磅。设置中的“字体大小”可自由输入正整数，也可用右侧上下箭头调整。额度字体和对齐仍沿用宿主原有样式。
-- `codex_path`：可选，指定可信的 `codex.exe` **绝对路径**。不支持 `.cmd` / `.bat` 启动脚本，也不从当前工作目录搜索程序。
-- `allow_local_fallback`：默认 `0`。设为 `1` 后，在首次服务端查询失败且没有可保留的数据时，尝试读取本地 rollout 事件中的历史额度。
-- `sessions_dir`：仅用于已开启的本地回退。未设置时使用 `CODEX_HOME\sessions`，否则使用当前用户的 `.codex\sessions`。
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `refresh_seconds` | `300` | 后台查询间隔，单位秒，范围 30～86400 |
+| `show_remaining` | `1` | `1` 显示剩余，`0` 显示已用 |
+| `show_reset_time` | `0` | 是否在百分比后追加重置时间，可在插件设置中勾选 |
+| `time_font_size` | `10` | 时间字号，单位磅，支持正整数，无 6～16 的固定限制 |
+| `graph_enabled` | `0` | 是否启用资源占用图；实际绘图还取决于宿主设置 |
+| `graph_mode` | `remaining` | 图形显示 `remaining` 或 `used`，独立于百分比文字模式 |
+| `allow_local_fallback` | `0` | 是否允许读取本地会话历史快照 |
+| `codex_path` | 自动探测 | 可信原生 `codex.exe` 的绝对路径 |
+| `sessions_dir` | 自动选择 | 本地回退目录；未设置时使用 `CODEX_HOME\sessions`，否则为用户的 `.codex\sessions` |
 
-开启时间显示后，修改 TrafficMonitor 的“显示文本设置”并应用，插件会自动同步已保存的标签和显示宽度，无需重启。主窗口与任务栏窗口的标签分别保留。
+INI 在插件启动时读取；手动修改后需要重启 TrafficMonitor。插件设置窗口中的修改在点击“确定”后生效并保存；点击取消或关闭窗口不保存。
 
-`--` 表示该窗口没有可用数据。上次查询失败保留的结果或本地会话快照，会在悬停说明中标记为“历史数据”，额度百分比后不添加状态符号。历史数据不会被标记为刚更新。
+### 默认文本与宿主自定义文本
 
-## 数据与隐私
+默认文本为 `Codex 5h额度:` / `Codex 7d额度:`。TrafficMonitor 已保存的自定义文本优先，包括主动清空的文本，不会被插件强制覆盖。若升级后仍显示旧的 `5h` / `7d`，可在 TrafficMonitor“选项 → 显示设置 → 显示文本设置”中改为上述完整标签。
 
-插件使用 `codex app-server` 的标准输入输出协议，仅发送初始化和 `account/rateLimits/read` 请求，不创建对话或执行模型任务。认证、令牌存储、刷新及与服务端通信均由本机 Codex 负责。插件本身不读取、复制或上传 `auth.json`，不记录原始响应或诊断日志，不提供遥测或远程控制端口。
+关闭时间显示时，由宿主正常绘制标签和百分比。开启时间显示时，为了单独指定时间字号，插件接管该项绘制，并沿用宿主字体、颜色、数值对齐及已保存的标签；主窗口与任务栏标签分别处理。修改宿主显示文本后点击“应用”或“确定”，标签和测量宽度会自动同步，无需重启。
 
-额度查询仍会使 Codex 向其配置的服务端发送已认证请求，并可能更新它自己的登录缓存、数据库或日志；服务端地址和代理等沿用本机 Codex 配置。请仅使用可信的 Codex 程序与配置，通常无需以管理员身份运行 TrafficMonitor。
+标签同步只读宿主配置，检查间隔为 250 毫秒，文件未变化时不重复解析；它与 120/300 秒的额度查询间隔无关。插件只保存自己的设置，不修改宿主的显示文本。
 
-若主动开启本地回退，插件会在内存中读取少量会话文件尾部，只解析 `event_msg/token_count` 中的额度事件，不保存或传送会话正文。该快照不保证新鲜，也不能可靠识别切换账号之前的数据；切换账号后请重启 TrafficMonitor。
+## 代理与网络
 
-使用同一个 `CODEX_HOME` 和相同登录存储才能查询预期账号；桌面应用和 CLI 的账号并非在所有安装方式下都自动一致。API key 额度不属于此插件支持的 ChatGPT 订阅额度。仅显示 300 分钟和 10080 分钟窗口，其他时长不会被误标为 5 小时或 7 天。
+本插件不单独实现 HTTP / SOCKS5 代理，也不支持 `[Network] Proxy` 或 `CODEX_USAGE_PROXY`。这些是其他插件的配置，复制到本项目的 INI 不会生效。
 
-Codex app-server 仍为实验性集成，CLI 升级可能需要更新插件。参考 [OpenAI app-server 文档](https://learn.chatgpt.com/docs/app-server) 和 [认证文档](https://learn.chatgpt.com/docs/auth)。
+额度请求由 `codex.exe` 发出；具体代理行为由所用 Codex 版本、其配置及继承的进程环境决定，不能将本插件视为“强制使用 Windows 系统代理”或“内置 SOCKS5”。请先确认同一账号、同一环境中的 Codex 能正常访问服务。改变外部环境变量后，需要重新启动 TrafficMonitor，让新的子进程继承设置。
 
-## 构建与测试
+## 安全与隐私
 
-需要 Visual Studio 2022 / Build Tools，安装“使用 C++ 的桌面开发”工作负载。构建脚本通过 `vswhere` 定位工具链。
+- 使用有大小限制的结构化 JSON 解析，并严格匹配 JSON-RPC 响应 ID，避免把无关通知或会话内容当作当前结果。
+- 子进程仅继承需要的标准输入、标准输出和丢弃诊断的句柄，不继承宿主其他可继承句柄。
+- 后台查询期间持有 DLL 引用，查询结束后再释放，避免宿主卸载插件时仍执行已卸载的代码。
+- 插件不输出原始响应、令牌或 Codex 的标准错误内容，不提供遥测、远程控制端口或监听服务。
+- Codex 自身仍可能更新登录缓存、数据库或日志；“插件不保存凭据”不代表 Codex 和系统没有自身状态文件。
+- 开启本地回退后，读入的会话尾部可能包含正文，虽然插件只提取额度事件。请勿分享真实会话文件、`auth.json` 或自己的配置文件。
+- 指定的 `codex.exe` 会以 TrafficMonitor 的权限运行，应使用可信程序和配置；不需要硬件温度监控时，可按宿主说明选择适合的运行权限。
+
+更多说明见 [SECURITY.md](SECURITY.md)。
+
+## 构建、测试与打包
+
+需要 Visual Studio 2022 或 Build Tools，并安装“使用 C++ 的桌面开发”工作负载。脚本通过 `vswhere` 定位工具链：
 
 ```bat
 build.bat
 test_build.bat
+test_options.bat
 ```
 
-输出为 `build\CodexUsage.dll`。测试只使用合成数据和模拟 app-server，验证解析边界、配置、子进程句柄隔离和后台查询期间 DLL 卸载，不读取真实登录或会话。
+- `build.bat`：生成 `build\CodexUsage.dll`，使用静态 C/C++ 运行库。
+- `test_build.bat`：运行合成额度、配置、句柄隔离、DLL 生命周期和绘制回归测试，不读取真实登录或会话。
+- `test_options.bat`：打开测试程序自己的设置窗口，验证确认/取消、布局及字号输入。
 
-GitHub Actions 构建配置保存在 `ci/build.yml.example`，仅作为示例，不会自动运行。需要启用时，将其放入 `.github/workflows/build.yml`，并使用具有相应 workflow 权限的凭据提交。
-
-可选的真实只读验证：
+可选的真实账号只读测试：
 
 ```bat
 build\backend_tests.exe --live "C:\Tools\Codex\codex.exe"
 ```
 
-该测试只打印查询是否成功及额度窗口，不打印 token、账号标识、原始响应或 stderr。它会使用所指定 Codex 的真实登录状态与网络。
+该模式使用所指定 Codex 的真实登录和网络，仅打印查询状态及额度百分比，不打印令牌、账号标识或响应正文。
 
-## 许可
+打包与发布文件检查：
 
-本项目采用 [MIT 许可证](LICENSE)，允许商业使用、修改、再分发和销售软件副本；再分发时须保留版权及许可声明。TrafficMonitor 插件接口和 yyjson 同样采用 MIT，其版权声明及许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目不包含 TrafficMonitor 主程序源码；主程序的许可不因本插件而改变。
+```powershell
+.\scripts\check-release.ps1
+.\scripts\package.ps1
+```
 
-在适用法律允许的最大范围内，本软件按“原样”提供，不提供任何担保；作者及版权持有者不承担因使用本插件产生的经济损失、数据丢失、业务中断、额外费用或其他损害责任。完整条款见 [LICENSE](LICENSE)，中文说明见 [DISCLAIMER.md](DISCLAIMER.md)。
+隐私检查针对 Git 暂存区的发布文件及已构建 DLL；执行前应先暂存计划发布的修改。打包输出 ZIP 与 SHA-256 校验文件，包含 DLL、示例配置、README、截图和许可文件，不包含真实配置或凭据。DLL 未进行代码签名。
 
-源码中第三方作者的署名和联系地址属于其公开版权声明。
+GitHub Actions 配置仅作为 `ci/build.yml.example` 保存，不会自动执行。需要启用时，将其放入 `.github/workflows/build.yml`，并使用具有相应 workflow 权限的凭据提交。
+
+### 主要文件
+
+| 文件 | 职责 |
+| --- | --- |
+| `CodexUsage.cpp` | 插件接口、后台刷新调度、设置窗口、显示文本同步和时间绘制 |
+| `UsageBackend.cpp` / `.h` | Codex 路径解析、子进程协议、额度解析和可选本地快照读取 |
+| `PluginInterface.h` | TrafficMonitor API 7 接口定义 |
+| `third_party/yyjson/` | JSON 解析器与第三方许可证 |
+| `tests/`、`test_options.cpp` | 模拟 app-server、后端与设置窗口测试 |
+| `docs/images/` | README 使用的实际截图 |
+
+## 常见问题
+
+| 现象 | 检查方式 |
+| --- | --- |
+| 插件没有加载 | 确认 DLL 位于 `plugins`，宿主为 x64 且支持 API 7；替换 DLL 后重启 |
+| 两项均显示 `--` | 确认 Codex 已用 ChatGPT 账号登录；检查原生程序路径、账号环境和网络 |
+| 只有一个窗口显示 `--` | 服务可能未提供该窗口，或实际时长不属于 300/10080 分钟，不能据此假定两项都故障 |
+| 百分比不更新 | 查看悬停说明是否为历史数据，核对数据时间；INI 改动后需重启 |
+| 仍显示 `5h` / `7d` | 宿主保留了旧文本，在“显示文本设置”中修改；新默认值不会覆盖自定义文本 |
+| 设置代理后无效 | 核对是否误用了其他插件的 `[Network]` 配置，本插件的网络由 Codex 负责 |
+| Codex 更新后查询失败 | 等待自动重探测，或修正显式 `codex_path`；上游协议变化也可能需要更新插件 |
+
+## 许可与责任限制
+
+本项目采用 [MIT 许可证](LICENSE)，允许商业使用、修改、再分发和销售软件副本；再分发时须保留适用的版权及许可声明。TrafficMonitor 插件接口和 yyjson 的版权声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本仓库不包含 TrafficMonitor 主程序，其许可不因本插件而改变。
+
+在适用法律允许的最大范围内，软件按“原样”提供，不提供担保；作者及版权持有者不对使用本插件产生的经济损失、数据丢失、业务中断、额外费用或其他损害承担责任。完整条款见 [LICENSE](LICENSE)，中文解释见 [DISCLAIMER.md](DISCLAIMER.md)。
+
+MIT 仅覆盖代码版权授权，不替代 OpenAI 等第三方服务的条款，也不单独授予账号认证的商业或托管服务使用权。有关 app-server 登录集成的适用要求，见 [OpenAI 官方认证说明](https://learn.chatgpt.com/docs/app-server#auth-endpoints)。
+
+README 的组织形式参考 [TrafficMonitor_Codex_Plugin_Proxy](https://github.com/lengmh/TrafficMonitor_Codex_Plugin_Proxy)。本插件的实现以本仓库源码为准；其直接令牌查询及代理配置方式不适用于本项目。

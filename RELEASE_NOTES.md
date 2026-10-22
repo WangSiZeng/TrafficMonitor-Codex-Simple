@@ -1,8 +1,12 @@
-# CodexUsage 1.2.0
+# TrafficMonitor Codex Simple V0.1.2
 
-Windows x64 plugin for displaying Codex's 5-hour and 7-day quota in TrafficMonitor.
+用于 Windows x64 TrafficMonitor 的简洁插件，专注显示 Codex 5 小时 / 7 天额度与截止（重置）时间。
 
-开发说明：代码基础由 deepseek flash4.1 完成，后期由 Codex 接管进行编写和完善。
+开发说明：
+
+- V0.1.0：由 **deepseek flash V4.1 独立完成**，仅提供额度显示功能。
+- V0.1.1：由 **deepseek flash V4.1 独立完成**，添加资源占用图的控制功能。
+- V0.1.2：由 **Codex 独立完成**，在前两版基础上添加截止时间显示及其开关、字号控制，完成 GitHub 整理上传。
 
 - Queries the official local Codex app-server; defaults to a 300-second interval.
 - Supports remaining/used percentages, resource graphs and an optional smaller reset timestamp.
@@ -19,7 +23,7 @@ Set `refresh_seconds=120` for a two-minute interval.
 Requires a trusted official native `codex.exe` and an existing ChatGPT login.
 Codex app-server remains experimental, so future CLI updates may require compatibility changes.
 
-Validation: 48 synthetic regression checks, settings confirm/cancel and font-input checks, rendered checks of reset timestamps and edited host labels, and a successful read-only query using the local Codex installation.
+Validation: 50 synthetic regression checks, settings confirm/cancel and font-input checks, rendered checks of reset timestamps and edited host labels, and a prior successful read-only query using the local Codex installation.
 
 The release ZIP includes licenses and SHA-256 checksums. The DLL is not code-signed.
 
