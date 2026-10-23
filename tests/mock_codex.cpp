@@ -17,7 +17,12 @@ int main() {
     std::cout << "{ \"id\": 1, \"result\": {} }" << std::endl;
     if (!std::getline(std::cin, line) || line.find("initialized") == std::string::npos) return 2;
     if (!std::getline(std::cin, line) || line.find("account/rateLimits/read") == std::string::npos) return 3;
-    std::cout << "{\"id\":4207,\"result\":{\"rateLimits\":{\"primary\":{\"usedPercent\":25,\"windowDurationMins\":300,\"resetsAt\":2000000000},\"secondary\":{\"usedPercent\":40,\"windowDurationMins\":10080,\"resetsAt\":2000604800}}}}" << std::endl;
+    wchar_t percent_text[16]{};
+    int primary_used = 25;
+    if (GetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", percent_text, 16))
+        primary_used = _wtoi(percent_text);
+    std::cout << "{\"id\":4207,\"result\":{\"rateLimits\":{\"primary\":{\"usedPercent\":" << primary_used
+        << ",\"windowDurationMins\":300,\"resetsAt\":2000000000},\"secondary\":{\"usedPercent\":40,\"windowDurationMins\":10080,\"resetsAt\":2000604800}}}}" << std::endl;
     while (std::getline(std::cin, line)) {}
     return 0;
 }

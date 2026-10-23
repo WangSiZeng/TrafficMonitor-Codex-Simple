@@ -188,7 +188,7 @@ public:
         case TMI_COPYRIGHT:
             return L"Copyright (C) 2026";
         case TMI_VERSION:
-            return L"0.1.3";
+            return L"0.1.4";
         default:
             break;
         }
@@ -223,6 +223,7 @@ public:
     bool GraphEnabled() const { return m_graph_enabled; }
     bool GraphRemaining() const { return m_graph_remaining; }
     bool ShowResetTime() const { return m_show_reset_time; }
+    bool DrawingTaskbar() const { return m_drawing_taskbar; }
     int TimeFontSize() const { return m_time_font_size; }
     int DrawingDpi(HDC dc) const {
         int dpi = m_app ? m_app->GetDPI(m_drawing_taskbar ? ITrafficMonitor::DPI_TASKBAR : ITrafficMonitor::DPI_MAIN_WND)
@@ -718,12 +719,15 @@ const wchar_t* CQuotaItem::GetItemValueText() const
 
 int CQuotaItem::IsDrawResourceUsageGraph() const
 {
-    return CCodexUsagePlugin::Instance().GraphEnabled() ? 1 : 0;
+    // Opt out of the host's graph pass. DrawItem owns the graph even when
+    // TrafficMonitor's global graph switch is enabled, avoiding double fill.
+    return 0;
 }
 
 bool CQuotaItem::IsCustomDraw() const
 {
-    return CCodexUsagePlugin::Instance().ShowResetTime();
+    const auto& plugin = CCodexUsagePlugin::Instance();
+    return plugin.ShowResetTime() || plugin.GraphEnabled();
 }
 
 int CQuotaItem::GetItemWidthEx(void* hDC) const
@@ -741,10 +745,14 @@ int CQuotaItem::GetItemWidthEx(void* hDC) const
     DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi(dc));
     std::wstring label = plugin.DisplayLabel(m_is_primary);
     if (!label.empty()) label += L" ";
-    std::wstring normal = label + L"100% ";
+    const bool show_time = plugin.ShowResetTime();
+    std::wstring normal = label + GetItemValueSampleText();
+    if (show_time) normal += L" ";
     int width = fonts.Width(normal);
-    fonts.Small();
-    width += fonts.Width(m_is_primary ? L"88:88" : L"88-88 88:88");
+    if (show_time) {
+        fonts.Small();
+        width += fonts.Width(m_is_primary ? L"88:88" : L"88-88 88:88");
+    }
     return width + 4;
 }
 
@@ -770,6 +778,17 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
     IntersectClipRect(dc, x, y, x + w, y + h);
     SetBkMode(dc, TRANSPARENT);
     SetTextAlign(dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
+    if (plugin.GraphEnabled() && plugin.DrawingTaskbar() && valid && window.valid) {
+        const double percent = plugin.GraphRemaining() ? 100.0 - window.used_percent : window.used_percent;
+        const int filled = static_cast<int>(w * (std::max)(0.0, (std::min)(percent, 100.0)) / 100.0);
+        if (filled > 0) {
+            // Muted solid colors keep host text readable on light and dark
+            // taskbars. Stock DC_BRUSH needs no allocation or deletion.
+            SetDCBrushColor(dc, dark_mode ? RGB(44, 75, 96) : RGB(211, 232, 246));
+            RECT fill{x, y, x + filled, y + h};
+            FillRect(dc, &fill, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        }
+    }
     {
         // The host measures with its configured font. Reuse that same font
         // even when its GDI/D2D paint surface starts with a different default.
@@ -784,11 +803,13 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
         TextOutW(dc, value_x, baseline - fonts.normal_metrics.tmAscent, value.c_str(), static_cast<int>(value.size()));
         // Append immediately after the actual percentage rather than after
         // a reserved maximum-width column, without changing the prefix text.
-        x = value_x + fonts.Width(value) + fonts.Width(L" ");
-        fonts.Small();
-        int time_y = fonts.small_metrics.tmHeight <= fonts.normal_metrics.tmHeight
-            ? baseline - fonts.small_metrics.tmAscent : y + (h - fonts.small_metrics.tmHeight) / 2;
-        TextOutW(dc, x, time_y, deadline.c_str(), static_cast<int>(deadline.size()));
+        if (plugin.ShowResetTime()) {
+            x = value_x + fonts.Width(value) + fonts.Width(L" ");
+            fonts.Small();
+            int time_y = fonts.small_metrics.tmHeight <= fonts.normal_metrics.tmHeight
+                ? baseline - fonts.small_metrics.tmAscent : y + (h - fonts.small_metrics.tmHeight) / 2;
+            TextOutW(dc, x, time_y, deadline.c_str(), static_cast<int>(deadline.size()));
+        }
     }
     RestoreDC(dc, saved);
 }

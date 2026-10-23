@@ -116,5 +116,22 @@ int wmain()
         if (result != ITMPlugin::OR_OPTION_CHANGED || plugin.TimeFontSize() != expected) return 1;
     }
     wprintf(L"free_font_size_without_popup=1\n");
+    for (int control : {IDC_SHOW_RESET_TIME, IDC_GRAPH_ENABLE}) {
+        std::thread toggler([control] {
+            Sleep(300);
+            HWND h = OwnOptionsWindow();
+            if (h) {
+                SendMessageW(GetDlgItem(h, control), BM_CLICK, 0, 0);
+                PostMessageW(h, WM_COMMAND, IDOK, 0);
+            }
+        });
+        const auto result = p->ShowOptionsDialog(nullptr);
+        toggler.join();
+        const bool graph_only = control == IDC_SHOW_RESET_TIME;
+        if (result != ITMPlugin::OR_OPTION_CHANGED || plugin.ShowResetTime() ||
+            plugin.GraphEnabled() != graph_only || p->GetItem(0)->IsCustomDraw() != graph_only ||
+            p->GetItem(0)->IsDrawResourceUsageGraph() != 0) return 1;
+    }
+    wprintf(L"graph_and_time_switches_independent=1\n");
     return 0;
 }

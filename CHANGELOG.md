@@ -1,5 +1,14 @@
 # 版本记录
 
+## V0.1.4 — Codex 独立完成（本地测试版，尚未发布）
+
+- Draw taskbar quota bars inside the plugin, independently of TrafficMonitor's global graph switch.
+- Opt out of the host's native graph pass to avoid duplicate graphs when its switch is enabled.
+- Keep graph and reset-time switches independent; hiding reset time removes its text and reserved width.
+- Preserve saved display labels, text fonts, colors and percentage alignment; keep remaining/used graph mode separate from the percentage text.
+- Use muted light/dark blue progress fills. Host graph colors, history curves and dashed borders do not apply.
+- Retain the V0.1.3 initialization compatibility fix for old and new hosts.
+
 ## V0.1.3 — Codex 独立完成
 
 - Handle `EI_CONFIG_DIR` so TrafficMonitor 1.85.1 can initialize settings, query quotas and locate saved host labels without the newer `OnInitialize` callback.

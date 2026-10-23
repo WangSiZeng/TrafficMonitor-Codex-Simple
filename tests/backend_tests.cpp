@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
 
 using namespace codex_usage;
 int failures = 0;
@@ -90,6 +91,105 @@ bool RenderPreview(ITMPlugin* plugin, const std::wstring& path, const wchar_t* c
     SelectObject(dc, old_font); SelectObject(dc, old_bitmap);
     DeleteObject(font); DeleteObject(bitmap); DeleteDC(dc);
     return success;
+}
+
+std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark, bool host_graph, bool show_time, bool main_window = false,
+    const std::wstring& path = {}) {
+    constexpr int width = 432, height = 52, x = 16, y = 8, item_width = 400, item_height = 36;
+    const COLORREF background = dark ? RGB(28, 28, 28) : RGB(255, 255, 255);
+    const COLORREF foreground = dark ? RGB(240, 240, 240) : RGB(16, 16, 16);
+    HDC dc = CreateCompatibleDC(nullptr);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width; info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+    void* pixels = nullptr;
+    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    if (!dc || !bitmap || !pixels) {
+        Check(false, "create graph rendering surface");
+        if (bitmap) DeleteObject(bitmap);
+        if (dc) DeleteDC(dc);
+        return {};
+    }
+    HGDIOBJ old_bitmap = SelectObject(dc, bitmap);
+    HFONT font = CreateFontW(-20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HGDIOBJ old_font = SelectObject(dc, font);
+    RECT surface{0, 0, width, height};
+    SetDCBrushColor(dc, background);
+    FillRect(dc, &surface, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    // Capture solid foreground pixels of the unchanged label and percentage.
+    // Antialiased edge colors can legitimately blend with the new bar fill.
+    SetBkMode(dc, TRANSPARENT); SetTextColor(dc, foreground);
+    TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
+    const int text_y = y + (item_height - metrics.tmHeight) / 2;
+    const std::wstring label = L"Quota: ";
+    const std::wstring value = plugin->GetItem(0)->GetItemValueText();
+    SIZE label_size{}, sample_size{}, value_size{}, space_size{};
+    GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &label_size);
+    GetTextExtentPoint32W(dc, L"100%", 4, &sample_size);
+    GetTextExtentPoint32W(dc, value.c_str(), static_cast<int>(value.size()), &value_size);
+    GetTextExtentPoint32W(dc, L" ", 1, &space_size);
+    TextOutW(dc, x, text_y, label.c_str(), static_cast<int>(label.size()));
+    TextOutW(dc, x + label_size.cx + (main_window ? 0 : sample_size.cx - value_size.cx),
+        text_y, value.c_str(), static_cast<int>(value.size()));
+    GdiFlush();
+    std::vector<POINT> solid_text;
+    for (int row = y; row < y + item_height; ++row)
+        for (int column = x; column < x + label_size.cx + sample_size.cx; ++column)
+            if (GetPixel(dc, column, row) == foreground) solid_text.push_back(POINT{column, row});
+    FillRect(dc, &surface, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    plugin->OnExtenedInfo(ITMPlugin::EI_DRAW_TASKBAR_WND, main_window ? L"0" : L"1");
+    plugin->OnExtenedInfo(ITMPlugin::EI_LABEL_TEXT_COLOR, std::to_wstring(foreground).c_str());
+    plugin->OnExtenedInfo(ITMPlugin::EI_VALUE_TEXT_COLOR, std::to_wstring(foreground).c_str());
+    plugin->OnExtenedInfo(ITMPlugin::EI_TASKBAR_WND_VALUE_RIGHT_ALIGN, L"1");
+    IPluginItem* item = plugin->GetItem(0);
+    // Mimic the host's independent native graph pass. It must always be
+    // opted out, including when the user enables the host's global switch.
+    if (host_graph && item->IsDrawResourceUsageGraph()) {
+        RECT native_fill{x, y, x + item_width, y + item_height};
+        SetDCBrushColor(dc, RGB(255, 0, 0));
+        FillRect(dc, &native_fill, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
+    item->GetItemWidthEx(dc);
+    const COLORREF brush_before = GetDCBrushColor(dc);
+    item->DrawItem(dc, x, y, item_width, item_height, dark);
+    Check(GetCurrentObject(dc, OBJ_FONT) == font && GetDCBrushColor(dc) == brush_before,
+        "custom graph restores the host's font and brush state");
+    GdiFlush();
+    const int expected_width = item_width * filled_percent / 100;
+    const COLORREF fill = GetPixel(dc, x, y);
+    bool correct_bar = expected_width == 0 || fill != background;
+    for (int column = 0; column < item_width; ++column)
+        if (GetPixel(dc, x + column, y) != (column < expected_width ? fill : background)) correct_bar = false;
+    Check(correct_bar, "graph pixels match the selected quota fraction, including zero and full");
+    Check(!solid_text.empty() && std::all_of(solid_text.begin(), solid_text.end(), [&](const POINT& point) {
+        return GetPixel(dc, point.x, point.y) == foreground;
+    }), "independent graph preserves custom label, percentage font and alignment");
+    bool extra_text = false;
+    for (int column = x + label_size.cx + sample_size.cx + space_size.cx; column < x + item_width; ++column) {
+        const COLORREF column_background = GetPixel(dc, column, y);
+        for (int row = y; row < y + item_height; ++row)
+            if (GetPixel(dc, column, row) != column_background) extra_text = true;
+    }
+    Check(extra_text == show_time, "reset-time text appears only when its own switch is enabled");
+    Check(GetPixel(dc, x - 1, y) == background && GetPixel(dc, x + item_width, y) == background &&
+        GetPixel(dc, x, y - 1) == background && GetPixel(dc, x, y + item_height) == background,
+        "custom graph stays inside the item rectangle");
+    const std::vector<DWORD> result(static_cast<DWORD*>(pixels), static_cast<DWORD*>(pixels) + width * height);
+    if (!path.empty()) {
+        BITMAPFILEHEADER header{};
+        header.bfType = 0x4d42; header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
+        header.bfSize = header.bfOffBits + width * height * 4;
+        std::ofstream file(path, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+        file.write(reinterpret_cast<const char*>(&info.bmiHeader), sizeof(BITMAPINFOHEADER));
+        file.write(static_cast<const char*>(pixels), width * height * 4);
+        Check(file.good(), "save independent graph preview");
+    }
+    SelectObject(dc, old_font); SelectObject(dc, old_bitmap);
+    DeleteObject(font); DeleteObject(bitmap); DeleteDC(dc);
+    return result;
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -262,6 +362,67 @@ int wmain(int argc, wchar_t** argv) {
     }
     { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
 
+    struct GraphCase { bool enabled, time, remaining, legacy, valid; int used; };
+    const GraphCase graph_cases[] = {
+        {false, false, true, false, true, 25}, {false, true, true, true, true, 25},
+        {true, false, true, false, true, 25}, {true, true, true, true, true, 25},
+        {true, false, false, true, true, 25}, {true, true, false, false, true, 25},
+        {true, false, true, false, true, 100}, {true, false, true, true, true, 0},
+        {true, false, true, false, false, 25}
+    };
+    const std::string graph_labels = "\xef\xbb\xbf[plugin_display_str_taskbar_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n[plugin_display_str_main_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n";
+    { std::ofstream file(host_ini, std::ios::binary); file << graph_labels; }
+    for (const auto& scenario : graph_cases) {
+        WritePrivateProfileStringW(L"config", L"graph_enabled", scenario.enabled ? L"1" : L"0", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"show_reset_time", scenario.time ? L"1" : L"0", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"graph_mode", scenario.remaining ? L"remaining" : L"used", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"codex_path", scenario.valid ? executable.c_str() : JoinPath(directory, L"missing.exe").c_str(), ini.c_str());
+        SetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", std::to_wstring(scenario.used).c_str());
+        module = LoadLibraryW(dll_path.c_str());
+        Check(module != nullptr, "load graph test plugin");
+        if (!module) continue;
+        using GetInstance = ITMPlugin* (*)();
+        auto get_instance = reinterpret_cast<GetInstance>(GetProcAddress(module, "TMPluginGetInstance"));
+        ITMPlugin* plugin = get_instance();
+        Host host(plugin_directory);
+        if (scenario.legacy) plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, plugin_directory.c_str());
+        else {
+            plugin->OnInitialize(&host);
+            plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, plugin_directory.c_str());
+        }
+        ULONGLONG deadline = GetTickCount64() + 5000;
+        while (scenario.valid && wcscmp(plugin->GetItem(0)->GetItemValueText(), L"--") == 0 && GetTickCount64() < deadline) Sleep(20);
+        const std::wstring expected_value = scenario.valid ? std::to_wstring(100 - scenario.used) + L"%" : L"--";
+        Check(plugin->GetItem(0)->GetItemValueText() == expected_value, "graph mode does not change quota text");
+        Check(plugin->GetItem(0)->IsCustomDraw() == (scenario.enabled || scenario.time), "graph and time independently request custom drawing");
+        Check(plugin->GetItem(0)->IsDrawResourceUsageGraph() == 0, "native host graph is disabled to prevent double drawing");
+        HDC layout_dc = CreateCompatibleDC(nullptr);
+        const int daily_width = plugin->GetItem(0)->GetItemWidthEx(layout_dc);
+        const int weekly_width = plugin->GetItem(1)->GetItemWidthEx(layout_dc);
+        DeleteDC(layout_dc);
+        Check(scenario.time ? weekly_width > daily_width : weekly_width == daily_width,
+            "hidden reset time reserves no timestamp width");
+        const int fraction = !scenario.enabled || !scenario.valid ? 0 : (scenario.remaining ? 100 - scenario.used : scenario.used);
+        for (bool dark : {false, true}) {
+            const bool preview = scenario.enabled && !scenario.legacy && scenario.valid && scenario.used == 25;
+            const std::wstring path = preview ? JoinPath(working_directory, dark
+                ? (scenario.time ? L"build\\graph-time-dark.bmp" : L"build\\graph-only-dark.bmp")
+                : (scenario.time ? L"build\\graph-time-light.bmp" : L"build\\graph-only-light.bmp")) : L"";
+            const auto without_host_graph = RenderGraph(plugin, fraction, dark, false, scenario.time, false, path);
+            const auto with_host_graph = RenderGraph(plugin, fraction, dark, true, scenario.time);
+            Check(!without_host_graph.empty() && without_host_graph == with_host_graph,
+                "host global graph switch has no effect on plugin drawing");
+        }
+        if (scenario.enabled && scenario.valid) RenderGraph(plugin, 0, true, false, scenario.time, true);
+        FreeLibrary(module);
+        deadline = GetTickCount64() + 5000;
+        while (GetModuleHandleW(dll_path.c_str()) && GetTickCount64() < deadline) Sleep(20);
+        Check(GetModuleHandleW(dll_path.c_str()) == nullptr, "graph test plugin unloads safely");
+    }
+    SetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", nullptr);
+    { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
+    WritePrivateProfileStringW(L"config", L"graph_enabled", L"0", ini.c_str());
+    WritePrivateProfileStringW(L"config", L"show_reset_time", L"1", ini.c_str());
     WritePrivateProfileStringW(L"config", L"codex_path", JoinPath(directory, L"missing.exe").c_str(), ini.c_str());
     WritePrivateProfileStringW(L"config", L"allow_local_fallback", L"1", ini.c_str());
     WritePrivateProfileStringW(L"config", L"sessions_dir", directory.c_str(), ini.c_str());
