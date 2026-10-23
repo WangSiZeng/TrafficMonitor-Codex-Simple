@@ -127,6 +127,14 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring taskbar_defaults[2], main_defaults[2];
     Check(ReadDisplayLabels(host_ini, taskbar_defaults, main_defaults) && main_defaults[0].empty() &&
         main_defaults[1] == L"Codex 7d额度:", "missing saved label uses full Codex default while explicit empty labels stay empty");
+    const std::string quoted_preferences = "\xef\xbb\xbf[plugin_display_str_taskbar_window]\r\ncodex_usage_5h = \"  自定义额度:  \"\r\ncodex_usage_7d = \"\"\r\n[plugin_display_str_main_window]\r\ncodex_usage_5h = $  旧版额度: $\r\ncodex_usage_7d = 金额$内部\r\n";
+    { std::ofstream file(host_ini, std::ios::binary); file << quoted_preferences; }
+    Check(ReadDisplayLabels(host_ini, taskbar_defaults, main_defaults) && taskbar_defaults[0] == L"  自定义额度:  ",
+        "host string quoting preserves surrounding spaces without drawing quote markers");
+    Check(taskbar_defaults[1].empty(), "quoted empty host labels remain empty");
+    Check(main_defaults[0] == L"  旧版额度: " && main_defaults[1] == L"金额$内部",
+        "legacy boundary markers match host decoding without altering internal characters");
+    { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
     Check(ReadRefreshMilliseconds(ini) == 300000, "default interval 300 seconds");
     const wchar_t* values[] = {L"120", L"1", L"-1", L"999999999999999999999999", L"broken"};
     const DWORD expected[] = {120000, 30000, 30000, 86400000, 300000};
@@ -170,6 +178,10 @@ int wmain(int argc, wchar_t** argv) {
             Check(!plugin->GetItem(0)->IsCustomDraw(), "reset-time display is opt-in");
             plugin->OnInitialize(&host);
             Check(plugin->GetItem(0)->IsCustomDraw(), "reset-time INI option enables custom drawing");
+            WritePrivateProfileStringW(L"config", L"show_reset_time", L"0", ini.c_str());
+            plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, (plugin_directory + L"\\").c_str());
+            Check(plugin->GetItem(0)->IsCustomDraw(), "modern host's second initialization event does not reload options");
+            WritePrivateProfileStringW(L"config", L"show_reset_time", L"1", ini.c_str());
             HDC drawing_dc = CreateCompatibleDC(nullptr);
             Check(plugin->GetItem(1)->GetItemWidthEx(drawing_dc) > plugin->GetItem(0)->GetItemWidthEx(drawing_dc), "weekly reset timestamp reserves more width");
             DeleteDC(drawing_dc);
@@ -215,6 +227,41 @@ int wmain(int argc, wchar_t** argv) {
         while (GetModuleHandleW(dll_path.c_str()) && GetTickCount64() < deadline) Sleep(20);
         Check(GetModuleHandleW(dll_path.c_str()) == nullptr, "rendered plugin unloads before historical-data check");
     }
+
+    // TrafficMonitor V1.85.1 never calls OnInitialize. It supplies the real
+    // plugin configuration directory only through EI_CONFIG_DIR (API 2).
+    // Keep this fixture outside the DLL's build directory, as in AppData mode.
+    const std::string legacy_preferences = "\xef\xbb\xbf[plugin_display_str_taskbar_window]\r\ncodex_usage_5h = 另一台电脑五小时:\r\ncodex_usage_7d = \"\"\r\n[plugin_display_str_main_window]\r\ncodex_usage_5h = \" 主窗口五小时: \"\r\ncodex_usage_7d = 主窗口七天:\r\n";
+    { std::ofstream file(host_ini, std::ios::binary); file << legacy_preferences; }
+    module = LoadLibraryW(dll_path.c_str());
+    Check(module != nullptr, "load plugin with legacy host initialization");
+    if (module) {
+        using GetInstance = ITMPlugin* (*)();
+        auto get_instance = reinterpret_cast<GetInstance>(GetProcAddress(module, "TMPluginGetInstance"));
+        ITMPlugin* plugin = get_instance();
+        plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, (plugin_directory + L"\\").c_str());
+        Check(plugin->GetItem(0)->IsCustomDraw(), "API 2 config-directory event loads the reset-time option");
+        ULONGLONG deadline = GetTickCount64() + 5000;
+        while (wcscmp(plugin->GetItem(0)->GetItemValueText(), L"--") == 0 && GetTickCount64() < deadline) Sleep(20);
+        Check(wcscmp(plugin->GetItem(0)->GetItemValueText(), L"75%") == 0, "legacy initialization starts the quota query");
+        const wchar_t* legacy_labels[] = {L"另一台电脑五小时:", L""};
+        Check(RenderPreview(plugin, JoinPath(working_directory, L"build\\legacy-label-preview.bmp"), legacy_labels), "legacy host uses saved labels from the supplied directory");
+        std::string legacy_edited = legacy_preferences;
+        legacy_edited.replace(legacy_edited.find("另一台电脑五小时:"), std::string("另一台电脑五小时:").size(), "在旧版中修改后的五小时额度:");
+        { std::ofstream file(host_ini, std::ios::binary); file << legacy_edited; }
+        Sleep(300);
+        const wchar_t* legacy_edited_labels[] = {L"在旧版中修改后的五小时额度:", L""};
+        Check(RenderPreview(plugin, JoinPath(working_directory, L"build\\legacy-edited-label-preview.bmp"), legacy_edited_labels), "legacy host edits synchronize while reset time remains enabled");
+        plugin->OnExtenedInfo(ITMPlugin::EI_DRAW_TASKBAR_WND, L"0");
+        const wchar_t* main_labels[] = {L" 主窗口五小时: ", L"主窗口七天:"};
+        Check(RenderPreview(plugin, JoinPath(working_directory, L"build\\legacy-main-label-preview.bmp"), main_labels), "legacy main-window labels stay independent");
+        FreeLibrary(module);
+        deadline = GetTickCount64() + 5000;
+        while (GetModuleHandleW(dll_path.c_str()) && GetTickCount64() < deadline) Sleep(20);
+        Check(GetModuleHandleW(dll_path.c_str()) == nullptr, "legacy plugin unloads safely");
+    }
+    { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
+
     WritePrivateProfileStringW(L"config", L"codex_path", JoinPath(directory, L"missing.exe").c_str(), ini.c_str());
     WritePrivateProfileStringW(L"config", L"allow_local_fallback", L"1", ini.c_str());
     WritePrivateProfileStringW(L"config", L"sessions_dir", directory.c_str(), ini.c_str());

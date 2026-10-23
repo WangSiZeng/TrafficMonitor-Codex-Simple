@@ -280,6 +280,10 @@ bool ParsePreference(const std::wstring& text, const wchar_t* section, const wch
         size_t equals = line.find(L'=');
         if (equals == std::wstring::npos || _wcsicmp(trim(line.substr(0, equals)).c_str(), key) != 0) continue;
         value = trim(line.substr(equals + 1));
+        // Match TrafficMonitor's CIniHelper::GetString: quotes protect spaces,
+        // and older configurations also use '$' as a boundary marker.
+        if (!value.empty() && (value.front() == L'"' || value.front() == L'$')) value.erase(0, 1);
+        if (!value.empty() && (value.back() == L'"' || value.back() == L'$')) value.pop_back();
         return true;
     }
     return false;

@@ -1,5 +1,13 @@
 # 版本记录
 
+## V0.1.3 — Codex 独立完成
+
+- Handle `EI_CONFIG_DIR` so TrafficMonitor 1.85.1 can initialize settings, query quotas and locate saved host labels without the newer `OnInitialize` callback.
+- Share initialization between old and new hosts; ignore the duplicate callback on newer hosts without reloading live options or restarting queries.
+- Match host label quoting, preserving surrounding spaces and deliberately empty labels.
+- Use drawing-device DPI when the older host provides no `ITrafficMonitor` interface.
+- Add regression coverage for the 1.85.1 callback sequence, separate configuration directories, live label edits and duplicate modern initialization.
+
 ## V0.1.2 — Codex 独立完成
 
 在 V0.1.1 的代码基础上继续迭代，添加额度截止时间的显示和控制，并完成 GitHub 项目整理与上传。

@@ -2,7 +2,7 @@ param([switch]$DllOnly)
 
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
-$version = '0.1.2'
+$version = '0.1.3'
 $projectName = 'TrafficMonitor-Codex-Simple'
 $distribution = Join-Path $repository 'dist'
 New-Item -ItemType Directory -Force -Path $distribution | Out-Null

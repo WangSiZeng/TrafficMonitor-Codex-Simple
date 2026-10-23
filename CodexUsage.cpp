@@ -167,6 +167,7 @@ public:
 
     void DataRequired() override
     {
+        if (!m_initialized) return;
         ULONGLONG now = GetTickCount64();
         if (now - m_last_scan < m_refresh_ms)
             return;
@@ -187,7 +188,7 @@ public:
         case TMI_COPYRIGHT:
             return L"Copyright (C) 2026";
         case TMI_VERSION:
-            return L"0.1.2";
+            return L"0.1.3";
         default:
             break;
         }
@@ -223,7 +224,11 @@ public:
     bool GraphRemaining() const { return m_graph_remaining; }
     bool ShowResetTime() const { return m_show_reset_time; }
     int TimeFontSize() const { return m_time_font_size; }
-    int DrawingDpi() const { return m_app ? m_app->GetDPI(m_drawing_taskbar ? ITrafficMonitor::DPI_TASKBAR : ITrafficMonitor::DPI_MAIN_WND) : 96; }
+    int DrawingDpi(HDC dc) const {
+        int dpi = m_app ? m_app->GetDPI(m_drawing_taskbar ? ITrafficMonitor::DPI_TASKBAR : ITrafficMonitor::DPI_MAIN_WND)
+            : GetDeviceCaps(dc, LOGPIXELSY);
+        return dpi > 0 ? dpi : 96;
+    }
     bool ValueRightAligned() const { return m_drawing_taskbar && m_value_right_align; }
     std::wstring DisplayLabel(bool primary) const {
         ExclusiveSrwLock lock(m_label_lock);
@@ -237,7 +242,10 @@ public:
     void OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* text) override
     {
         if (!text) return;
-        if (index == EI_LABEL_TEXT_COLOR) m_label_color = wcstoul(text, nullptr, 10);
+        // V1.85.1 and older hosts have no OnInitialize callback. Both old and
+        // new hosts supply the actual settings directory through this API.
+        if (index == EI_CONFIG_DIR) InitializeFromConfigDirectory(text);
+        else if (index == EI_LABEL_TEXT_COLOR) m_label_color = wcstoul(text, nullptr, 10);
         else if (index == EI_VALUE_TEXT_COLOR) m_value_color = wcstoul(text, nullptr, 10);
         else if (index == EI_DRAW_TASKBAR_WND) m_drawing_taskbar = wcstol(text, nullptr, 10) != 0;
         else if (index == EI_TASKBAR_WND_VALUE_RIGHT_ALIGN) m_value_right_align = wcstol(text, nullptr, 10) != 0;
@@ -246,13 +254,29 @@ public:
     void OnInitialize(ITrafficMonitor* pApp) override
     {
         m_app = pApp;
-        std::wstring config_path;
-        if (pApp != nullptr)
+        if (pApp && pApp->GetAPIVersion() >= 1)
+            InitializeFromConfigDirectory(pApp->GetPluginConfigDir());
+    }
+
+    void GetWindow(bool primary, QuotaWindow& w, bool& data_valid, bool& stale)
+    {
+        CriticalLock lock(m_cs);
+        w = primary ? m_data.primary : m_data.secondary;
+        data_valid = m_data.valid;
+        stale = m_data.stale;
+    }
+
+private:
+    void InitializeFromConfigDirectory(const wchar_t* directory)
+    {
+        // New hosts send both callbacks. Initialize only once so a second
+        // notification cannot reset live options or launch another query.
+        if (m_initialized || !directory || !*directory) return;
+        LoadConfig(JoinPath(directory, L"CodexUsage.ini"));
         {
-            config_path = JoinPath(pApp->GetPluginConfigDir(), L"CodexUsage.ini");
-            LoadConfig(config_path);
-            m_host_config_path = JoinPath(pApp->GetPluginConfigDir(), L"..\\config.ini");
-            DisplayLabel(true);
+            ExclusiveSrwLock lock(m_label_lock);
+            m_host_config_path = JoinPath(directory, L"..\\config.ini");
+            RefreshDisplayLabelsLocked();
         }
         if (m_sessions_dir.empty())
         {
@@ -268,19 +292,10 @@ public:
             m_auto_detect_exe = true;
             m_codex_exe = FindCodexExe();
         }
+        m_initialized = true;
         m_last_scan = GetTickCount64();
         KickRefresh();
     }
-
-    void GetWindow(bool primary, QuotaWindow& w, bool& data_valid, bool& stale)
-    {
-        CriticalLock lock(m_cs);
-        w = primary ? m_data.primary : m_data.secondary;
-        data_valid = m_data.valid;
-        stale = m_data.stale;
-    }
-
-private:
     void RefreshDisplayLabelsLocked() const {
         // The host persists labels when settings are applied, but API 7 does
         // not pass their text to custom-drawn items. Refresh this read-only
@@ -446,6 +461,7 @@ private:
     }
 
     ITrafficMonitor* m_app = nullptr;
+    bool m_initialized = false;
     CQuotaItem m_item_5h{ true };
     CQuotaItem m_item_7d{ false };
     UsageData m_data;
@@ -722,7 +738,7 @@ int CQuotaItem::GetItemWidthEx(void* hDC) const
         m_has_normal_description = true;
         ReleaseSRWLockExclusive(&m_font_lock);
     }
-    DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi());
+    DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi(dc));
     std::wstring label = plugin.DisplayLabel(m_is_primary);
     if (!label.empty()) label += L" ";
     std::wstring normal = label + L"100% ";
@@ -757,7 +773,7 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
     {
         // The host measures with its configured font. Reuse that same font
         // even when its GDI/D2D paint surface starts with a different default.
-        DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi(), has_description ? &normal_description : nullptr);
+        DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi(dc), has_description ? &normal_description : nullptr);
         int baseline = y + (h - fonts.normal_metrics.tmHeight) / 2 + fonts.normal_metrics.tmAscent;
         SetTextColor(dc, plugin.LabelColor(dark_mode));
         TextOutW(dc, x, baseline - fonts.normal_metrics.tmAscent, label.c_str(), static_cast<int>(label.size()));
