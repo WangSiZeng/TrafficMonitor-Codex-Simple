@@ -9,6 +9,7 @@
 - Match the host's graph-setting layout: custom color, Windows theme-color checkbox, bar/scrolling graph selection and a data-logic label above remaining/used choices.
 - Use the same MFC standard/custom color dialog, statically linked so the plugin remains a single DLL.
 - Keep a bounded in-memory scrolling history. Changing remaining/used logic reinterprets existing samples without extra queries or history files.
+- Record scrolling history only when a live quota query succeeds, independently of painting and graph visibility. Use one refresh interval per column, preserve missing-query gaps and exclude cached/local snapshots from new history.
 - Retain the V0.1.3 initialization compatibility fix for old and new hosts.
 
 ## V0.1.3 — Codex 独立完成

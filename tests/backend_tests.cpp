@@ -206,12 +206,17 @@ std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark,
 
 int wmain(int argc, wchar_t** argv) {
     GraphHistory history;
-    history.Record(1000, 25); history.Record(1500, 40);
+    history.Reset(1000, 120000);
+    history.Record(1000, 25); history.Record(1250, 40);
     Check(history.Snapshot().size() == 1 && history.Snapshot()[0].used_percent == 40,
-        "multiple paints in one second update a single history sample");
-    history.Record(2000, 50); history.Record(4000, 100);
-    history.Record(5000, -1); history.Record(5000, 101);
-    Check(history.Snapshot().size() == 3, "history rejects invalid percentages");
+        "multiple successful queries in one refresh interval share one column");
+    // No paint occurs between successful queries. A failed/missing query in
+    // slot 2 must stay empty instead of repeating the value from slot 1.
+    history.Record(121000, 50); history.Record(361000, 100);
+    history.Record(481000, -1); history.Record(481000, 101);
+    history.Record(999, 75); history.Record(121000, 75);
+    Check(history.Snapshot().size() == 3 && history.Snapshot()[1].used_percent == 50,
+        "history rejects invalid percentages and late samples without erasing recent history");
     HDC history_dc = CreateCompatibleDC(nullptr);
     HBITMAP history_bitmap = CreateBitmap(8, 10, 1, 32, nullptr);
     HGDIOBJ old_history_bitmap = SelectObject(history_dc, history_bitmap);
@@ -219,20 +224,40 @@ int wmain(int argc, wchar_t** argv) {
     SetDCBrushColor(history_dc, RGB(0, 0, 0));
     FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     SetDCBrushColor(history_dc, RGB(10, 90, 150));
-    history.Draw(history_dc, history_area, 4000, false);
+    history.Draw(history_dc, history_area, 361000, false);
     Check(GetPixel(history_dc, 7, 0) == RGB(10, 90, 150) && GetPixel(history_dc, 6, 9) == RGB(0, 0, 0) &&
         GetPixel(history_dc, 5, 4) == RGB(0, 0, 0) && GetPixel(history_dc, 5, 5) == RGB(10, 90, 150),
-        "history plots used percentages at the correct time positions and leaves gaps empty");
+        "history uses query intervals with adjacent successes and a gap for a missing query");
     SetDCBrushColor(history_dc, RGB(0, 0, 0));
     FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     SetDCBrushColor(history_dc, RGB(10, 90, 150));
-    history.Draw(history_dc, history_area, 4000, true);
+    history.Draw(history_dc, history_area, 480999, false);
+    Check(GetPixel(history_dc, 7, 0) == RGB(10, 90, 150) &&
+        GetPixel(history_dc, 5, 5) == RGB(10, 90, 150) && history.Snapshot().size() == 3,
+        "irregular or paused painting within a query interval neither moves nor appends history");
+    SetDCBrushColor(history_dc, RGB(0, 0, 0));
+    FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SetDCBrushColor(history_dc, RGB(10, 90, 150));
+    history.Draw(history_dc, history_area, 481000, false);
+    Check(GetPixel(history_dc, 7, 9) == RGB(0, 0, 0) && GetPixel(history_dc, 6, 0) == RGB(10, 90, 150) &&
+        history.Snapshot().size() == 3,
+        "a new interval without a successful query stays empty and never stamps the cached value");
+    SetDCBrushColor(history_dc, RGB(0, 0, 0));
+    FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SetDCBrushColor(history_dc, RGB(10, 90, 150));
+    history.Draw(history_dc, history_area, 361000, true);
     Check(GetPixel(history_dc, 7, 9) == RGB(0, 0, 0) && GetPixel(history_dc, 4, 4) == RGB(10, 90, 150),
         "changing history data logic reinterprets previous samples as remaining percentages");
     SelectObject(history_dc, old_history_bitmap); DeleteObject(history_bitmap); DeleteDC(history_dc);
-    for (ULONGLONG second = 1; second <= 5000; ++second) history.Record(second * 1000, 25);
-    Check(history.Snapshot().size() == GraphHistory::capacity && history.Snapshot().front().second == 905,
+    history.Reset(1000, 120000);
+    for (ULONGLONG slot = 1; slot <= 5000; ++slot) history.Record(1000 + slot * 120000, 25);
+    Check(history.Snapshot().size() == GraphHistory::capacity && history.Snapshot().front().slot == 905,
         "scrolling history retains a bounded number of recent samples");
+    history.Reset(5000, 300000);
+    history.Record(5000, 25); history.Record(304999, 30); history.Record(305000, 35);
+    Check(history.Snapshot().size() == 2 && history.Snapshot()[0].slot == 0 &&
+        history.Snapshot()[0].used_percent == 30 && history.Snapshot()[1].slot == 1,
+        "default five-minute history scale is anchored at initialization rather than system uptime boundaries");
     UsageData data;
     Check(ParseRpcReply("{ \"id\": 7, \"result\": {} }", 7, nullptr), "spaced initialization reply");
     Check(!ParseRpcReply("{\"id\":70,\"result\":{}}", 7, nullptr), "request ID exact match");
@@ -404,7 +429,7 @@ int wmain(int argc, wchar_t** argv) {
 
     struct GraphCase {
         bool enabled, time, remaining, legacy, valid; int used;
-        COLORREF color = RGB(192, 192, 192); bool theme = false, scroll = false;
+        COLORREF color = RGB(192, 192, 192); bool theme = false, scroll = false, fallback = false;
     };
     const GraphCase graph_cases[] = {
         {false, false, true, false, true, 25}, {false, true, true, true, true, 25},
@@ -414,7 +439,9 @@ int wmain(int argc, wchar_t** argv) {
         {true, false, true, false, false, 25},
         {true, false, true, false, true, 25, RGB(10, 90, 150), false, false},
         {true, false, true, false, true, 25, RGB(10, 90, 150), true, false},
-        {true, false, true, false, true, 25, RGB(10, 90, 150), false, true}
+        {true, false, true, false, true, 25, RGB(10, 90, 150), false, true},
+        {true, false, true, true, false, 25, RGB(10, 90, 150), false, true, true},
+        {true, false, true, false, false, 25, RGB(10, 90, 150), false, false, true}
     };
     const std::string graph_labels = "\xef\xbb\xbf[plugin_display_str_taskbar_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n[plugin_display_str_main_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n";
     { std::ofstream file(host_ini, std::ios::binary); file << graph_labels; }
@@ -425,6 +452,8 @@ int wmain(int argc, wchar_t** argv) {
         WritePrivateProfileStringW(L"config", L"graph_color", std::to_wstring(scenario.color).c_str(), ini.c_str());
         WritePrivateProfileStringW(L"config", L"graph_follow_theme", scenario.theme ? L"1" : L"0", ini.c_str());
         WritePrivateProfileStringW(L"config", L"graph_type", scenario.scroll ? L"scroll" : L"bar", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"allow_local_fallback", scenario.fallback ? L"1" : L"0", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"sessions_dir", directory.c_str(), ini.c_str());
         WritePrivateProfileStringW(L"config", L"codex_path", scenario.valid ? executable.c_str() : JoinPath(directory, L"missing.exe").c_str(), ini.c_str());
         SetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", std::to_wstring(scenario.used).c_str());
         module = LoadLibraryW(dll_path.c_str());
@@ -440,8 +469,9 @@ int wmain(int argc, wchar_t** argv) {
             plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, plugin_directory.c_str());
         }
         ULONGLONG deadline = GetTickCount64() + 5000;
-        while (scenario.valid && wcscmp(plugin->GetItem(0)->GetItemValueText(), L"--") == 0 && GetTickCount64() < deadline) Sleep(20);
-        const std::wstring expected_value = scenario.valid ? std::to_wstring(100 - scenario.used) + L"%" : L"--";
+        while ((scenario.valid || scenario.fallback) && wcscmp(plugin->GetItem(0)->GetItemValueText(), L"--") == 0 && GetTickCount64() < deadline) Sleep(20);
+        const std::wstring expected_value = scenario.fallback ? L"90%" :
+            (scenario.valid ? std::to_wstring(100 - scenario.used) + L"%" : L"--");
         Check(plugin->GetItem(0)->GetItemValueText() == expected_value, "graph mode does not change quota text");
         Check(plugin->GetItem(0)->IsCustomDraw() == (scenario.enabled || scenario.time), "graph and time independently request custom drawing");
         Check(plugin->GetItem(0)->IsDrawResourceUsageGraph() == 0, "native host graph is disabled to prevent double drawing");
@@ -451,7 +481,8 @@ int wmain(int argc, wchar_t** argv) {
         DeleteDC(layout_dc);
         Check(scenario.time ? weekly_width > daily_width : weekly_width == daily_width,
             "hidden reset time reserves no timestamp width");
-        const int fraction = !scenario.enabled || !scenario.valid ? 0 : (scenario.remaining ? 100 - scenario.used : scenario.used);
+        const int fraction = !scenario.enabled || (!scenario.valid && (!scenario.fallback || scenario.scroll)) ? 0 :
+            (scenario.fallback ? 90 : (scenario.remaining ? 100 - scenario.used : scenario.used));
         for (bool dark : {false, true}) {
             const bool preview = scenario.enabled && !scenario.legacy && scenario.valid && scenario.used == 25;
             const std::wstring path = preview ? JoinPath(working_directory, dark

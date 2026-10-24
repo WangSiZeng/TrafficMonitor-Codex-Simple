@@ -152,6 +152,11 @@ public:
     int GetItemWidthEx(void* hDC) const override;
     void DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode) override;
 
+    void InitializeGraphHistory(ULONGLONG origin, DWORD interval) { m_graph_history.Reset(origin, interval); }
+    void RecordGraphSample(ULONGLONG query_started, const QuotaWindow& window) {
+        if (window.valid) m_graph_history.Record(query_started, window.used_percent);
+    }
+
 private:
     bool m_is_primary;
     mutable SRWLOCK m_font_lock = SRWLOCK_INIT;
@@ -316,8 +321,10 @@ private:
             m_auto_detect_exe = true;
             m_codex_exe = FindCodexExe();
         }
-        m_initialized = true;
         m_last_scan = GetTickCount64();
+        m_item_5h.InitializeGraphHistory(m_last_scan, m_refresh_ms);
+        m_item_7d.InitializeGraphHistory(m_last_scan, m_refresh_ms);
+        m_initialized = true;
         KickRefresh();
     }
     void RefreshDisplayLabelsLocked() const {
@@ -430,6 +437,9 @@ private:
 
     void FetchOnce()
     {
+        // Timestamp the request, not its paint or completion time. Network
+        // latency must not move a successful query into a later history slot.
+        const ULONGLONG query_started = GetTickCount64();
         UsageData data;
         bool ok = FetchFromAppServer(m_codex_exe, data);
         if (!ok && m_auto_detect_exe)
@@ -449,7 +459,11 @@ private:
         {
             CriticalLock lock(m_cs);
             // Keep the last successful query, including its actual timestamp.
-            if (ok) m_data = data;
+            if (ok) {
+                m_item_5h.RecordGraphSample(query_started, data.primary);
+                m_item_7d.RecordGraphSample(query_started, data.secondary);
+                m_data = data;
+            }
             else if (m_data.valid) m_data.stale = true;
         }
         if (!ok && m_allow_local_fallback)
@@ -870,7 +884,6 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
     SetTextAlign(dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
     if (plugin.GraphEnabled() && plugin.DrawingTaskbar() && valid && window.valid) {
         const ULONGLONG now = GetTickCount64();
-        m_graph_history.Record(now, window.used_percent);
         const double percent = plugin.GraphRemaining() ? 100.0 - window.used_percent : window.used_percent;
         const int filled = static_cast<int>(w * (std::max)(0.0, (std::min)(percent, 100.0)) / 100.0);
         SetDCBrushColor(dc, plugin.GraphColor());
