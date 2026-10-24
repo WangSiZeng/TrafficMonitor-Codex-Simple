@@ -40,8 +40,12 @@ constexpr int IDC_GRAPH_SCROLL = 1010;
 constexpr int IDC_GRAPH_LOGIC_LABEL = 1011;
 constexpr int IDC_GRAPH_COLOR_LABEL = 1012;
 constexpr int IDC_GRAPH_TYPE_LABEL = 1013;
+constexpr int IDC_TIME_ALL = 1014;
+constexpr int IDC_TIME_5H = 1015;
+constexpr int IDC_TIME_7D = 1016;
 constexpr int kOptionsClientW = 400;
-constexpr int kOptionsClientH = 292;
+constexpr int kOptionsClientH = 324;
+enum class ResetTimeScope { All, FiveHour, SevenDay };
 
 class CriticalLock {
 public:
@@ -251,6 +255,11 @@ public:
     }
     COLORREF GraphColor() const { return m_graph_follow_theme ? ThemeColor() : m_graph_color.load(); }
     bool ShowResetTime() const { return m_show_reset_time; }
+    bool ShowResetTime(bool primary) const {
+        if (!m_show_reset_time) return false;
+        const auto scope = m_reset_time_scope.load();
+        return scope == ResetTimeScope::All || scope == (primary ? ResetTimeScope::FiveHour : ResetTimeScope::SevenDay);
+    }
     bool DrawingTaskbar() const { return m_drawing_taskbar; }
     int TimeFontSize() const { return m_time_font_size; }
     int DrawingDpi(HDC dc) const {
@@ -380,6 +389,10 @@ private:
         m_graph_color = GetPrivateProfileIntW(L"config", L"graph_color", RGB(192, 192, 192), path.c_str()) & 0xffffff;
         m_graph_follow_theme = GetPrivateProfileIntW(L"config", L"graph_follow_theme", 0, path.c_str()) != 0;
         m_show_reset_time = GetPrivateProfileIntW(L"config", L"show_reset_time", 0, path.c_str()) != 0;
+        wchar_t time_scope[16]{};
+        GetPrivateProfileStringW(L"config", L"reset_time_scope", L"all", time_scope, 16, path.c_str());
+        m_reset_time_scope = _wcsicmp(time_scope, L"5h") == 0 ? ResetTimeScope::FiveHour :
+            (_wcsicmp(time_scope, L"7d") == 0 ? ResetTimeScope::SevenDay : ResetTimeScope::All);
         int time_points = GetPrivateProfileIntW(L"config", L"time_font_size", 10, path.c_str());
         m_time_font_size = time_points > 0 ? time_points : 10;
         wchar_t graph_mode[32]{};
@@ -432,6 +445,7 @@ private:
 
     static LRESULT CALLBACK OptionsProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void CreateOptionControls(HWND hWnd);
+    void EnableTimeControls(HWND hWnd);
     void EnableGraphControls(HWND hWnd);
     void SaveConfig() const;
 
@@ -522,6 +536,7 @@ private:
     std::atomic<COLORREF> m_graph_color{ RGB(192, 192, 192) };
     COLORREF m_option_graph_color = RGB(192, 192, 192);
     std::atomic<bool> m_show_reset_time{ false };
+    std::atomic<ResetTimeScope> m_reset_time_scope{ ResetTimeScope::All };
     std::atomic<int> m_time_font_size{ 10 };
     std::atomic<bool> m_drawing_taskbar{ true }, m_value_right_align{ false };
     std::wstring m_host_config_path;
@@ -553,6 +568,9 @@ void CCodexUsagePlugin::SaveConfig() const
     WritePrivateProfileStringW(L"config", L"graph_follow_theme", m_graph_follow_theme ? L"1" : L"0", m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"graph_color", std::to_wstring(m_graph_color.load()).c_str(), m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"show_reset_time", m_show_reset_time ? L"1" : L"0", m_config_path.c_str());
+    const auto time_scope = m_reset_time_scope.load();
+    WritePrivateProfileStringW(L"config", L"reset_time_scope", time_scope == ResetTimeScope::FiveHour ? L"5h" :
+        (time_scope == ResetTimeScope::SevenDay ? L"7d" : L"all"), m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"time_font_size", std::to_wstring(m_time_font_size.load()).c_str(), m_config_path.c_str());
 }
 
@@ -570,10 +588,16 @@ void CCodexUsagePlugin::CreateOptionControls(HWND hWnd)
     HWND reset_time = mk(L"BUTTON", L"重置时间显示", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
         16, 16, 368, 22, IDC_SHOW_RESET_TIME);
     SendMessageW(reset_time, BM_SETCHECK, m_show_reset_time ? BST_CHECKED : BST_UNCHECKED, 0);
-    mk(L"STATIC", L"字体大小:", SS_LEFT | SS_CENTERIMAGE, 32, 48, 72, 22, -1);
+    mk(L"BUTTON", L"全部", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 32, 48, 88, 22, IDC_TIME_ALL);
+    mk(L"BUTTON", L"5h额度", BS_AUTORADIOBUTTON, 140, 48, 96, 22, IDC_TIME_5H);
+    mk(L"BUTTON", L"7d额度", BS_AUTORADIOBUTTON, 248, 48, 96, 22, IDC_TIME_7D);
+    const auto time_scope = m_reset_time_scope.load();
+    CheckRadioButton(hWnd, IDC_TIME_ALL, IDC_TIME_7D, time_scope == ResetTimeScope::FiveHour ? IDC_TIME_5H :
+        (time_scope == ResetTimeScope::SevenDay ? IDC_TIME_7D : IDC_TIME_ALL));
+    mk(L"STATIC", L"字体大小:", SS_LEFT | SS_CENTERIMAGE | WS_GROUP, 32, 80, 72, 22, -1);
     HWND time_size = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"10",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL,
-        S(104), S(48), S(56), S(22), hWnd,
+        S(104), S(80), S(56), S(22), hWnd,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TIME_FONT_SIZE)), g_hModule, nullptr);
     SendMessageW(time_size, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
     HWND time_spin = mk(UPDOWN_CLASSW, L"", UDS_ALIGNRIGHT | UDS_SETBUDDYINT | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
@@ -581,34 +605,39 @@ void CCodexUsagePlugin::CreateOptionControls(HWND hWnd)
     SendMessageW(time_spin, UDM_SETBUDDY, reinterpret_cast<WPARAM>(time_size), 0);
     SendMessageW(time_spin, UDM_SETRANGE32, 1, MAXLONG);
     SendMessageW(time_spin, UDM_SETPOS32, 0, m_time_font_size);
-    EnableWindow(time_size, m_show_reset_time);
-    EnableWindow(time_spin, m_show_reset_time);
+    EnableTimeControls(hWnd);
 
     HWND chk = mk(L"BUTTON", L"启用资源占用图", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
-        16, 96, 368, 22, IDC_GRAPH_ENABLE);
+        16, 128, 368, 22, IDC_GRAPH_ENABLE);
     if (m_graph_enabled) SendMessageW(chk, BM_SETCHECK, BST_CHECKED, 0);
-    mk(L"STATIC", L"占用图颜色：", SS_LEFT | SS_CENTERIMAGE, 32, 128, 74, 22, IDC_GRAPH_COLOR_LABEL);
-    mk(L"BUTTON", L"占用图颜色", BS_OWNERDRAW | WS_TABSTOP, 108, 128, 44, 22, IDC_GRAPH_COLOR);
+    mk(L"STATIC", L"占用图颜色：", SS_LEFT | SS_CENTERIMAGE, 32, 160, 74, 22, IDC_GRAPH_COLOR_LABEL);
+    mk(L"BUTTON", L"占用图颜色", BS_OWNERDRAW | WS_TABSTOP, 108, 160, 44, 22, IDC_GRAPH_COLOR);
     HWND theme = mk(L"BUTTON", L"跟随 Windows 主题颜色", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
-        164, 128, 220, 22, IDC_GRAPH_THEME);
+        164, 160, 220, 22, IDC_GRAPH_THEME);
     SendMessageW(theme, BM_SETCHECK, m_graph_follow_theme ? BST_CHECKED : BST_UNCHECKED, 0);
-    mk(L"STATIC", L"占用图类型：", SS_LEFT | SS_CENTERIMAGE, 32, 160, 74, 22, IDC_GRAPH_TYPE_LABEL);
+    mk(L"STATIC", L"占用图类型：", SS_LEFT | SS_CENTERIMAGE, 32, 192, 74, 22, IDC_GRAPH_TYPE_LABEL);
     HWND bar = mk(L"BUTTON", L"柱状图", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
-        108, 160, 76, 22, IDC_GRAPH_BAR);
+        108, 192, 76, 22, IDC_GRAPH_BAR);
     HWND scroll = mk(L"BUTTON", L"横向滚动图", BS_AUTORADIOBUTTON | WS_TABSTOP,
-        196, 160, 132, 22, IDC_GRAPH_SCROLL);
+        196, 192, 132, 22, IDC_GRAPH_SCROLL);
     SendMessageW(m_graph_scrolling ? scroll : bar, BM_SETCHECK, BST_CHECKED, 0);
-    mk(L"STATIC", L"数据逻辑：", SS_LEFT | SS_CENTERIMAGE, 32, 192, 74, 22, IDC_GRAPH_LOGIC_LABEL);
+    mk(L"STATIC", L"数据逻辑：", SS_LEFT | SS_CENTERIMAGE, 32, 224, 74, 22, IDC_GRAPH_LOGIC_LABEL);
     HWND r_remaining = mk(L"BUTTON", L"剩余额度", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
-        108, 192, 220, 22, IDC_GRAPH_REMAINING);
+        108, 224, 220, 22, IDC_GRAPH_REMAINING);
     HWND r_used = mk(L"BUTTON", L"已用额度", BS_AUTORADIOBUTTON,
-        108, 220, 220, 22, IDC_GRAPH_USED);
+        108, 252, 220, 22, IDC_GRAPH_USED);
     SendMessageW(m_graph_remaining ? r_remaining : r_used, BM_SETCHECK, BST_CHECKED, 0);
     EnableGraphControls(hWnd);
 
     mk(L"BUTTON", L"确定", BS_DEFPUSHBUTTON,
         (kOptionsClientW - 75) / 2, kOptionsClientH - 14 - 25, 75, 25, IDOK);
     SendMessageW(hWnd, DM_SETDEFID, IDOK, 0);
+}
+
+void CCodexUsagePlugin::EnableTimeControls(HWND window) {
+    const BOOL enabled = SendDlgItemMessageW(window, IDC_SHOW_RESET_TIME, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    for (int id : {IDC_TIME_ALL, IDC_TIME_5H, IDC_TIME_7D, IDC_TIME_FONT_SIZE, IDC_TIME_FONT_SPIN})
+        EnableWindow(GetDlgItem(window, id), enabled);
 }
 
 void CCodexUsagePlugin::EnableGraphControls(HWND window) {
@@ -649,6 +678,9 @@ LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wPar
                 self->m_graph_follow_theme = SendDlgItemMessageW(hWnd, IDC_GRAPH_THEME, BM_GETCHECK, 0, 0) == BST_CHECKED;
                 self->m_graph_color = self->m_option_graph_color;
                 self->m_show_reset_time = SendMessageW(GetDlgItem(hWnd, IDC_SHOW_RESET_TIME), BM_GETCHECK, 0, 0) == BST_CHECKED;
+                self->m_reset_time_scope = SendDlgItemMessageW(hWnd, IDC_TIME_5H, BM_GETCHECK, 0, 0) == BST_CHECKED ?
+                    ResetTimeScope::FiveHour : (SendDlgItemMessageW(hWnd, IDC_TIME_7D, BM_GETCHECK, 0, 0) == BST_CHECKED ?
+                        ResetTimeScope::SevenDay : ResetTimeScope::All);
                 self->m_time_font_size = static_cast<int>(time_points);
                 self->SaveConfig();
                 self->m_option_result = ITMPlugin::OR_OPTION_CHANGED;
@@ -674,9 +706,7 @@ LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wPar
             }
             else if (id == IDC_SHOW_RESET_TIME)
             {
-                BOOL enabled = SendMessageW(GetDlgItem(hWnd, IDC_SHOW_RESET_TIME), BM_GETCHECK, 0, 0) == BST_CHECKED;
-                EnableWindow(GetDlgItem(hWnd, IDC_TIME_FONT_SIZE), enabled);
-                EnableWindow(GetDlgItem(hWnd, IDC_TIME_FONT_SPIN), enabled);
+                self->EnableTimeControls(hWnd);
             }
         }
         return 0;
@@ -831,7 +861,7 @@ int CQuotaItem::IsDrawResourceUsageGraph() const
 bool CQuotaItem::IsCustomDraw() const
 {
     const auto& plugin = CCodexUsagePlugin::Instance();
-    return plugin.ShowResetTime() || plugin.GraphEnabled();
+    return plugin.ShowResetTime(m_is_primary) || plugin.GraphEnabled();
 }
 
 int CQuotaItem::GetItemWidthEx(void* hDC) const
@@ -849,7 +879,7 @@ int CQuotaItem::GetItemWidthEx(void* hDC) const
     DrawingFonts fonts(dc, plugin.TimeFontSize(), plugin.DrawingDpi(dc));
     std::wstring label = plugin.DisplayLabel(m_is_primary);
     if (!label.empty()) label += L" ";
-    const bool show_time = plugin.ShowResetTime();
+    const bool show_time = plugin.ShowResetTime(m_is_primary);
     std::wstring normal = label + GetItemValueSampleText();
     if (show_time) normal += L" ";
     int width = fonts.Width(normal);
@@ -910,7 +940,7 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
         TextOutW(dc, value_x, baseline - fonts.normal_metrics.tmAscent, value.c_str(), static_cast<int>(value.size()));
         // Append immediately after the actual percentage rather than after
         // a reserved maximum-width column, without changing the prefix text.
-        if (plugin.ShowResetTime()) {
+        if (plugin.ShowResetTime(m_is_primary)) {
             x = value_x + fonts.Width(value) + fonts.Width(L" ");
             fonts.Small();
             int time_y = fonts.small_metrics.tmHeight <= fonts.normal_metrics.tmHeight

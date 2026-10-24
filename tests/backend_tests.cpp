@@ -95,7 +95,7 @@ bool RenderPreview(ITMPlugin* plugin, const std::wstring& path, const wchar_t* c
 }
 
 std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark, bool host_graph, bool show_time, bool main_window = false,
-    const std::wstring& path = {}, bool scrolling = false, COLORREF expected_color = CLR_INVALID) {
+    const std::wstring& path = {}, bool scrolling = false, COLORREF expected_color = CLR_INVALID, int item_index = 0) {
     constexpr int width = 432, height = 52, x = 16, y = 8, item_width = 400, item_height = 36;
     const COLORREF background = dark ? RGB(28, 28, 28) : RGB(255, 255, 255);
     const COLORREF foreground = dark ? RGB(240, 240, 240) : RGB(16, 16, 16);
@@ -125,7 +125,7 @@ std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark,
     TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
     const int text_y = y + (item_height - metrics.tmHeight) / 2;
     const std::wstring label = L"Quota: ";
-    const std::wstring value = plugin->GetItem(0)->GetItemValueText();
+    const std::wstring value = plugin->GetItem(item_index)->GetItemValueText();
     SIZE label_size{}, sample_size{}, value_size{}, space_size{};
     GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &label_size);
     GetTextExtentPoint32W(dc, L"100%", 4, &sample_size);
@@ -144,7 +144,7 @@ std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark,
     plugin->OnExtenedInfo(ITMPlugin::EI_LABEL_TEXT_COLOR, std::to_wstring(foreground).c_str());
     plugin->OnExtenedInfo(ITMPlugin::EI_VALUE_TEXT_COLOR, std::to_wstring(foreground).c_str());
     plugin->OnExtenedInfo(ITMPlugin::EI_TASKBAR_WND_VALUE_RIGHT_ALIGN, L"1");
-    IPluginItem* item = plugin->GetItem(0);
+    IPluginItem* item = plugin->GetItem(item_index);
     // Mimic the host's independent native graph pass. It must always be
     // opted out, including when the user enables the host's global switch.
     if (host_graph && item->IsDrawResourceUsageGraph()) {
@@ -501,6 +501,54 @@ int wmain(int argc, wchar_t** argv) {
         Check(GetModuleHandleW(dll_path.c_str()) == nullptr, "graph test plugin unloads safely");
     }
     SetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", nullptr);
+    struct TimeScopeCase { const wchar_t* scope; bool enabled, five, seven; };
+    const TimeScopeCase time_scopes[] = {
+        {nullptr, true, true, true}, {L"all", true, true, true}, {L"5h", true, true, false},
+        {L"7d", true, false, true}, {L"invalid", true, true, true}, {L"7d", false, false, false}
+    };
+    WritePrivateProfileStringW(L"config", L"codex_path", executable.c_str(), ini.c_str());
+    WritePrivateProfileStringW(L"config", L"allow_local_fallback", L"0", ini.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_type", L"bar", ini.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_mode", L"remaining", ini.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_follow_theme", L"0", ini.c_str());
+    for (const auto& scenario : time_scopes) for (bool graph : {false, true}) {
+        WritePrivateProfileStringW(L"config", L"reset_time_scope", scenario.scope, ini.c_str());
+        WritePrivateProfileStringW(L"config", L"show_reset_time", scenario.enabled ? L"1" : L"0", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"graph_enabled", graph ? L"1" : L"0", ini.c_str());
+        module = LoadLibraryW(dll_path.c_str());
+        Check(module != nullptr, "load per-quota reset-time test plugin");
+        if (!module) continue;
+        using GetInstance = ITMPlugin* (*)();
+        auto get_instance = reinterpret_cast<GetInstance>(GetProcAddress(module, "TMPluginGetInstance"));
+        ITMPlugin* plugin = get_instance();
+        Host host(plugin_directory);
+        if (graph) plugin->OnInitialize(&host);
+        else plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, plugin_directory.c_str());
+        ULONGLONG deadline = GetTickCount64() + 5000;
+        while (wcscmp(plugin->GetItem(0)->GetItemValueText(), L"--") == 0 && GetTickCount64() < deadline) Sleep(20);
+        HDC layout_dc = CreateCompatibleDC(nullptr);
+        SIZE text_size{};
+        constexpr const wchar_t* normal_text = L"Quota: 100%";
+        GetTextExtentPoint32W(layout_dc, normal_text, static_cast<int>(wcslen(normal_text)), &text_size);
+        const bool times[] = {scenario.five, scenario.seven};
+        for (int index = 0; index < 2; ++index) {
+            auto* item = plugin->GetItem(index);
+            Check(item->IsCustomDraw() == (graph || times[index]), "only items needing a graph or selected reset time use custom drawing");
+            const int width = item->GetItemWidthEx(layout_dc);
+            Check(times[index] ? width > text_size.cx + 4 : width == text_size.cx + 4,
+                "each unselected reset time removes its reserved layout width");
+            Check(wcscmp(item->GetItemValueText(), index ? L"60%" : L"75%") == 0,
+                "per-quota reset-time selection leaves quota percentages unchanged");
+            RenderGraph(plugin, graph ? (index ? 60 : 75) : 0, true, false, times[index], false,
+                L"", false, CLR_INVALID, index);
+        }
+        DeleteDC(layout_dc);
+        FreeLibrary(module);
+        deadline = GetTickCount64() + 5000;
+        while (GetModuleHandleW(dll_path.c_str()) && GetTickCount64() < deadline) Sleep(20);
+        Check(GetModuleHandleW(dll_path.c_str()) == nullptr, "per-quota reset-time test plugin unloads safely");
+    }
+    WritePrivateProfileStringW(L"config", L"reset_time_scope", nullptr, ini.c_str());
     { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
     WritePrivateProfileStringW(L"config", L"graph_enabled", L"0", ini.c_str());
     WritePrivateProfileStringW(L"config", L"show_reset_time", L"1", ini.c_str());

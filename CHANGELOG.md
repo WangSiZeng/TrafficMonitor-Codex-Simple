@@ -5,6 +5,7 @@
 - Draw taskbar quota bars inside the plugin, independently of TrafficMonitor's global graph switch.
 - Opt out of the host's native graph pass to avoid duplicate graphs when its switch is enabled.
 - Keep graph and reset-time switches independent; hiding reset time removes its text and reserved width.
+- Add side-by-side All / 5h / 7d reset-time choices under the master time switch. Preserve old configurations as All and omit hidden timestamps from each item's layout width.
 - Preserve saved display labels, text fonts, colors and percentage alignment; keep remaining/used graph mode separate from the percentage text.
 - Match the host's graph-setting layout: custom color, Windows theme-color checkbox, bar/scrolling graph selection and a data-logic label above remaining/used choices.
 - Use the same MFC standard/custom color dialog, statically linked so the plugin remains a single DLL.
