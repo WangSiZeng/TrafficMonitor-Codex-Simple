@@ -1,6 +1,6 @@
 # 版本记录
 
-## V0.1.4 — Codex 独立完成（本地测试版，尚未发布）
+## V0.1.4 — 2026-10-24 · Codex 独立完成
 
 - Draw taskbar quota bars inside the plugin, independently of TrafficMonitor's global graph switch.
 - Opt out of the host's native graph pass to avoid duplicate graphs when its switch is enabled.
