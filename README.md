@@ -12,7 +12,7 @@
 | V0.1.1 | **deepseek flash V4.1 独立完成** | 在额度显示基础上，添加资源占用图的控制功能 |
 | V0.1.2 | **Codex 独立完成** | 添加额度截止时间的显示和控制功能，包括显示开关与时间字号调整；完成后续整理、技术文档、截图及 GitHub 上传 |
 | V0.1.3 | **Codex 独立完成** | 补齐 TrafficMonitor 1.85.1 的初始化兼容，修复开启时间后宿主自定义文本失效；兼容标签引号与保留空格 |
-| V0.1.4（本地测试版） | **Codex 独立完成** | 插件自行绘制额度进度条，图形开关独立于 TrafficMonitor 总开关，时间显示仍单独控制 |
+| V0.1.4（本地测试版） | **Codex 独立完成** | 插件自行绘制额度图；独立图形开关、自选颜色 / 跟随 Windows 主题色、柱状图 / 横向滚动图，以及已用 / 剩余数据逻辑 |
 
 V0.1.2 在前两个版本的代码基础上继续迭代。以上版本及开发归属按项目维护者提供的历史记录说明。
 
@@ -32,7 +32,14 @@ V0.1.2 在前两个版本的代码基础上继续迭代。以上版本及开发�
 
 **“剩余额度 / 已用额度”单选项只控制资源占用图，不会切换任务栏文字百分比。** 设置窗口没有“将额度文字改为已用百分比”的功能。
 
-从 V0.1.4 开始，资源占用图由插件自行绘制为文字背后的浅色进度条，仅由插件的“启用资源占用图”开关控制。TrafficMonitor 的图形总开关可以关闭。进度条在任务栏显示，按深色 / 浅色背景选用柔和的蓝色；不使用宿主的图形颜色、历史曲线和虚线框设置。时间开关独立于图形开关，两者都关闭时使用宿主原生文字绘制。上方图片展示的是此前版本的实际界面。
+从 V0.1.4 开始，资源占用图由插件自行绘制，仅由插件的“启用资源占用图”开关控制，TrafficMonitor 的图形总开关可以关闭。图形设置沿用 TrafficMonitor 的布局与含义：
+
+- **占用图颜色**：点击色块打开与 TrafficMonitor 同款的 MFC 调色板，含“标准 / 自定义”页和取色功能。
+- **跟随 Windows 主题颜色**：启用后使用系统主题色，禁用手动色块；先前自选颜色会保留。
+- **占用图类型**：柱状图按当前百分比填充背景；横向滚动图展示内存中的历史数据，每秒一列，重启后清空，不增加额度查询频率，也不写历史文件。
+- **数据逻辑**：选择“剩余额度”或“已用额度”，只改变图形；切换时也会重新解释已有历史数据。
+
+这些选项保存在插件自己的 INI，独立于宿主的图形颜色和图形类型设置。图形仅出现在任务栏，时间开关仍独立控制；两者都关闭时使用宿主原生文字绘制。上方图片展示的是此前版本的实际界面。GDI / Direct2D 渲染方式仍由宿主选择，插件使用宿主传入的绘图上下文。
 
 ## 显示项目
 
@@ -143,6 +150,9 @@ show_reset_time=1
 time_font_size=8
 graph_enabled=1
 graph_mode=remaining
+graph_color=12632256
+graph_follow_theme=0
+graph_type=bar
 allow_local_fallback=0
 ; 可选：可信原生程序的绝对路径
 ; codex_path=C:\Tools\Codex\codex.exe
@@ -158,6 +168,9 @@ allow_local_fallback=0
 | `time_font_size` | `10` | 时间字号，单位磅，支持正整数，无 6～16 的固定限制 |
 | `graph_enabled` | `0` | 是否启用插件自行绘制的任务栏额度进度条，与宿主的图形总开关无关 |
 | `graph_mode` | `remaining` | **只控制资源占用图**：`remaining` 为剩余，`used` 为已用；不会切换额度文字 |
+| `graph_color` | `12632256` | 自选图形颜色，Windows `COLORREF` 十进制值；默认 RGB(192,192,192) |
+| `graph_follow_theme` | `0` | 是否跟随 Windows 主题色；为 `1` 时暂不使用自选颜色，但保留其值 |
+| `graph_type` | `bar` | `bar` 为柱状图，`scroll` 为横向滚动图 |
 | `allow_local_fallback` | `0` | 是否允许读取本地会话历史快照 |
 | `codex_path` | 自动探测 | 可信原生 `codex.exe` 的绝对路径 |
 | `sessions_dir` | 自动选择 | 本地回退目录；未设置时使用 `CODEX_HOME\sessions`，否则为用户的 `.codex\sessions` |
@@ -198,7 +211,7 @@ V0.1.3 及以前的图形由宿主绘制，需要两个开关同时开启。V0.1
 
 ## 构建、测试与打包
 
-需要 Visual Studio 2022 或 Build Tools，并安装“使用 C++ 的桌面开发”工作负载。脚本通过 `vswhere` 定位工具链：
+需要 Visual Studio 2022 或 Build Tools，并安装“使用 C++ 的桌面开发”工作负载及 **C++ MFC（x86 和 x64）** 组件。脚本通过 `vswhere` 定位工具链。颜色面板使用系统 SDK 对应的 MFC 组件并静态链接，安装插件时仍只需一个 DLL，不必另装 MFC 或 C/C++ 运行库：
 
 ```bat
 build.bat
@@ -208,7 +221,7 @@ test_options.bat
 
 - `build.bat`：生成 `build\CodexUsage.dll`，使用静态 C/C++ 运行库。
 - `test_build.bat`：运行合成额度、配置、句柄隔离、DLL 生命周期和绘制回归测试，不读取真实登录或会话。
-- `test_options.bat`：打开测试程序自己的设置窗口，验证确认/取消、布局及字号输入。
+- `test_options.bat`：打开测试程序自己的设置窗口，验证确认/取消、布局、字号、MFC 调色板、颜色草稿，以及图形类型和主题色设置。
 
 可选的真实账号只读测试：
 
@@ -238,6 +251,8 @@ GitHub Actions 配置仅作为 `ci/build.yml.example` 保存，不会自动执�
 | `CodexUsage.cpp` | 插件接口、后台刷新调度、设置窗口、显示文本同步和时间绘制 |
 | `UsageBackend.cpp` / `.h` | Codex 路径解析、子进程协议、额度解析和可选本地快照读取 |
 | `PluginInterface.h` | TrafficMonitor API 7 接口定义 |
+| `ColorPicker.cpp`、`ColorPicker.rc` | 静态链接的 MFC 标准 / 自定义颜色面板与资源 |
+| `GraphDrawing.h` | 有容量上限的滚动历史与图形绘制 |
 | `third_party/yyjson/` | JSON 解析器与第三方许可证 |
 | `tests/`、`test_options.cpp` | 模拟 app-server、后端与设置窗口测试 |
 | `docs/images/` | README 使用的实际截图 |

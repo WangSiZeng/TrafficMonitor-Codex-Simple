@@ -1,0 +1,14 @@
+#include "afxres.h"
+#include "afxribbonres.h"
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+#include "l.chs/afxres.rc"
+// Include the localized dialog/pages, without unrelated ribbon artwork.
+#define _AFX_INTL_RESOURCES
+#include "l.chs/afxribbon.rc"
+#undef _AFX_INTL_RESOURCES
+IDB_AFXBARRES_COLOR_PICKER BITMAP "res/picker.bmp"
+IDC_AFXBARRES_COLOR CURSOR "res/color-pro.cur"

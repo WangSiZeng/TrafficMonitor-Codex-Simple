@@ -6,7 +6,9 @@
 - Opt out of the host's native graph pass to avoid duplicate graphs when its switch is enabled.
 - Keep graph and reset-time switches independent; hiding reset time removes its text and reserved width.
 - Preserve saved display labels, text fonts, colors and percentage alignment; keep remaining/used graph mode separate from the percentage text.
-- Use muted light/dark blue progress fills. Host graph colors, history curves and dashed borders do not apply.
+- Match the host's graph-setting layout: custom color, Windows theme-color checkbox, bar/scrolling graph selection and a data-logic label above remaining/used choices.
+- Use the same MFC standard/custom color dialog, statically linked so the plugin remains a single DLL.
+- Keep a bounded in-memory scrolling history. Changing remaining/used logic reinterprets existing samples without extra queries or history files.
 - Retain the V0.1.3 initialization compatibility fix for old and new hosts.
 
 ## V0.1.3 — Codex 独立完成

@@ -32,3 +32,9 @@ Vendored from the official [yyjson 0.13.0 release](https://github.com/ibireme/yy
 Source and the complete MIT license are in `third_party/yyjson/`.
 
 Copyright (c) 2020 YaoYuan.
+
+## Microsoft Foundation Classes (MFC)
+
+The standard/custom color dialog and its localized resources are linked statically from the build machine's Visual Studio MFC component. No MFC source files are vendored in this repository. MFC is a Microsoft component governed by the applicable Visual Studio redistribution terms; the project's MIT license does not relicense MFC.
+
+Copyright (C) Microsoft Corporation. All rights reserved.

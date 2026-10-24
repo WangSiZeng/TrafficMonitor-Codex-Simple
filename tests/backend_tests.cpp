@@ -1,4 +1,5 @@
 #include "UsageBackend.h"
+#include "GraphDrawing.h"
 #pragma warning(push)
 #pragma warning(disable: 4100)
 #include "PluginInterface.h"
@@ -33,7 +34,7 @@ public:
     unsigned short GetLanguageId() const override { return 0; }
     const wchar_t* GetPluginConfigDir() const override { return directory_.c_str(); }
     int GetDPI(DPIType) const override { return 96; }
-    unsigned int GetThemeColor() const override { return 0; }
+    unsigned int GetThemeColor() const override { return RGB(24, 118, 183); }
 private:
     std::wstring directory_;
 };
@@ -94,7 +95,7 @@ bool RenderPreview(ITMPlugin* plugin, const std::wstring& path, const wchar_t* c
 }
 
 std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark, bool host_graph, bool show_time, bool main_window = false,
-    const std::wstring& path = {}) {
+    const std::wstring& path = {}, bool scrolling = false, COLORREF expected_color = CLR_INVALID) {
     constexpr int width = 432, height = 52, x = 16, y = 8, item_width = 400, item_height = 36;
     const COLORREF background = dark ? RGB(28, 28, 28) : RGB(255, 255, 255);
     const COLORREF foreground = dark ? RGB(240, 240, 240) : RGB(16, 16, 16);
@@ -157,20 +158,31 @@ std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark,
     Check(GetCurrentObject(dc, OBJ_FONT) == font && GetDCBrushColor(dc) == brush_before,
         "custom graph restores the host's font and brush state");
     GdiFlush();
-    const int expected_width = item_width * filled_percent / 100;
+    const int expected_width = scrolling ? 0 : item_width * filled_percent / 100;
     const COLORREF fill = GetPixel(dc, x, y);
     bool correct_bar = expected_width == 0 || fill != background;
     for (int column = 0; column < item_width; ++column)
         if (GetPixel(dc, x + column, y) != (column < expected_width ? fill : background)) correct_bar = false;
     Check(correct_bar, "graph pixels match the selected quota fraction, including zero and full");
+    if (scrolling) {
+        const int expected_height = item_height * filled_percent / 100;
+        const COLORREF column_color = GetPixel(dc, x + item_width - 1, y + item_height - 1);
+        bool correct_column = expected_height == 0 || column_color != background;
+        for (int row = 0; row < item_height; ++row)
+            if (GetPixel(dc, x + item_width - 1, y + row) !=
+                (row >= item_height - expected_height ? column_color : background)) correct_column = false;
+        Check(correct_column, "scrolling graph draws the latest quota as the rightmost history column");
+    }
+    if (filled_percent > 0 && expected_color != CLR_INVALID)
+        Check(GetPixel(dc, scrolling ? x + item_width - 1 : x, y + item_height - 1) == expected_color,
+            "graph uses the configured color or host Windows theme color");
     Check(!solid_text.empty() && std::all_of(solid_text.begin(), solid_text.end(), [&](const POINT& point) {
         return GetPixel(dc, point.x, point.y) == foreground;
     }), "independent graph preserves custom label, percentage font and alignment");
     bool extra_text = false;
     for (int column = x + label_size.cx + sample_size.cx + space_size.cx; column < x + item_width; ++column) {
-        const COLORREF column_background = GetPixel(dc, column, y);
         for (int row = y; row < y + item_height; ++row)
-            if (GetPixel(dc, column, row) != column_background) extra_text = true;
+            if (GetPixel(dc, column, row) == foreground) extra_text = true;
     }
     Check(extra_text == show_time, "reset-time text appears only when its own switch is enabled");
     Check(GetPixel(dc, x - 1, y) == background && GetPixel(dc, x + item_width, y) == background &&
@@ -193,6 +205,34 @@ std::vector<DWORD> RenderGraph(ITMPlugin* plugin, int filled_percent, bool dark,
 }
 
 int wmain(int argc, wchar_t** argv) {
+    GraphHistory history;
+    history.Record(1000, 25); history.Record(1500, 40);
+    Check(history.Snapshot().size() == 1 && history.Snapshot()[0].used_percent == 40,
+        "multiple paints in one second update a single history sample");
+    history.Record(2000, 50); history.Record(4000, 100);
+    history.Record(5000, -1); history.Record(5000, 101);
+    Check(history.Snapshot().size() == 3, "history rejects invalid percentages");
+    HDC history_dc = CreateCompatibleDC(nullptr);
+    HBITMAP history_bitmap = CreateBitmap(8, 10, 1, 32, nullptr);
+    HGDIOBJ old_history_bitmap = SelectObject(history_dc, history_bitmap);
+    RECT history_area{0, 0, 8, 10};
+    SetDCBrushColor(history_dc, RGB(0, 0, 0));
+    FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SetDCBrushColor(history_dc, RGB(10, 90, 150));
+    history.Draw(history_dc, history_area, 4000, false);
+    Check(GetPixel(history_dc, 7, 0) == RGB(10, 90, 150) && GetPixel(history_dc, 6, 9) == RGB(0, 0, 0) &&
+        GetPixel(history_dc, 5, 4) == RGB(0, 0, 0) && GetPixel(history_dc, 5, 5) == RGB(10, 90, 150),
+        "history plots used percentages at the correct time positions and leaves gaps empty");
+    SetDCBrushColor(history_dc, RGB(0, 0, 0));
+    FillRect(history_dc, &history_area, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SetDCBrushColor(history_dc, RGB(10, 90, 150));
+    history.Draw(history_dc, history_area, 4000, true);
+    Check(GetPixel(history_dc, 7, 9) == RGB(0, 0, 0) && GetPixel(history_dc, 4, 4) == RGB(10, 90, 150),
+        "changing history data logic reinterprets previous samples as remaining percentages");
+    SelectObject(history_dc, old_history_bitmap); DeleteObject(history_bitmap); DeleteDC(history_dc);
+    for (ULONGLONG second = 1; second <= 5000; ++second) history.Record(second * 1000, 25);
+    Check(history.Snapshot().size() == GraphHistory::capacity && history.Snapshot().front().second == 905,
+        "scrolling history retains a bounded number of recent samples");
     UsageData data;
     Check(ParseRpcReply("{ \"id\": 7, \"result\": {} }", 7, nullptr), "spaced initialization reply");
     Check(!ParseRpcReply("{\"id\":70,\"result\":{}}", 7, nullptr), "request ID exact match");
@@ -362,13 +402,19 @@ int wmain(int argc, wchar_t** argv) {
     }
     { std::ofstream file(host_ini, std::ios::binary); file << host_preferences; }
 
-    struct GraphCase { bool enabled, time, remaining, legacy, valid; int used; };
+    struct GraphCase {
+        bool enabled, time, remaining, legacy, valid; int used;
+        COLORREF color = RGB(192, 192, 192); bool theme = false, scroll = false;
+    };
     const GraphCase graph_cases[] = {
         {false, false, true, false, true, 25}, {false, true, true, true, true, 25},
         {true, false, true, false, true, 25}, {true, true, true, true, true, 25},
         {true, false, false, true, true, 25}, {true, true, false, false, true, 25},
         {true, false, true, false, true, 100}, {true, false, true, true, true, 0},
-        {true, false, true, false, false, 25}
+        {true, false, true, false, false, 25},
+        {true, false, true, false, true, 25, RGB(10, 90, 150), false, false},
+        {true, false, true, false, true, 25, RGB(10, 90, 150), true, false},
+        {true, false, true, false, true, 25, RGB(10, 90, 150), false, true}
     };
     const std::string graph_labels = "\xef\xbb\xbf[plugin_display_str_taskbar_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n[plugin_display_str_main_window]\r\ncodex_usage_5h = Quota:\r\ncodex_usage_7d = Quota:\r\n";
     { std::ofstream file(host_ini, std::ios::binary); file << graph_labels; }
@@ -376,6 +422,9 @@ int wmain(int argc, wchar_t** argv) {
         WritePrivateProfileStringW(L"config", L"graph_enabled", scenario.enabled ? L"1" : L"0", ini.c_str());
         WritePrivateProfileStringW(L"config", L"show_reset_time", scenario.time ? L"1" : L"0", ini.c_str());
         WritePrivateProfileStringW(L"config", L"graph_mode", scenario.remaining ? L"remaining" : L"used", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"graph_color", std::to_wstring(scenario.color).c_str(), ini.c_str());
+        WritePrivateProfileStringW(L"config", L"graph_follow_theme", scenario.theme ? L"1" : L"0", ini.c_str());
+        WritePrivateProfileStringW(L"config", L"graph_type", scenario.scroll ? L"scroll" : L"bar", ini.c_str());
         WritePrivateProfileStringW(L"config", L"codex_path", scenario.valid ? executable.c_str() : JoinPath(directory, L"missing.exe").c_str(), ini.c_str());
         SetEnvironmentVariableW(L"TM_TEST_USED_PERCENT", std::to_wstring(scenario.used).c_str());
         module = LoadLibraryW(dll_path.c_str());
@@ -408,9 +457,10 @@ int wmain(int argc, wchar_t** argv) {
             const std::wstring path = preview ? JoinPath(working_directory, dark
                 ? (scenario.time ? L"build\\graph-time-dark.bmp" : L"build\\graph-only-dark.bmp")
                 : (scenario.time ? L"build\\graph-time-light.bmp" : L"build\\graph-only-light.bmp")) : L"";
-            const auto without_host_graph = RenderGraph(plugin, fraction, dark, false, scenario.time, false, path);
-            const auto with_host_graph = RenderGraph(plugin, fraction, dark, true, scenario.time);
-            Check(!without_host_graph.empty() && without_host_graph == with_host_graph,
+            const COLORREF graph_color = scenario.theme ? host.GetThemeColor() : scenario.color;
+            const auto without_host_graph = RenderGraph(plugin, fraction, dark, false, scenario.time, false, path, scenario.scroll, graph_color);
+            const auto with_host_graph = RenderGraph(plugin, fraction, dark, true, scenario.time, false, L"", scenario.scroll, graph_color);
+            Check(!without_host_graph.empty() && (scenario.scroll || without_host_graph == with_host_graph),
                 "host global graph switch has no effect on plugin drawing");
         }
         if (scenario.enabled && scenario.valid) RenderGraph(plugin, 0, true, false, scenario.time, true);

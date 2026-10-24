@@ -10,15 +10,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <dwmapi.h>
 #pragma warning(push)
 #pragma warning(disable: 4100)
 #include "PluginInterface.h"
 #pragma warning(pop)
 #include "UsageBackend.h"
+#include "ColorPicker.h"
+#include "GraphDrawing.h"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "dwmapi.lib")
 
 using namespace codex_usage;
 namespace {
@@ -29,8 +33,15 @@ constexpr int IDC_GRAPH_USED = 1003;
 constexpr int IDC_SHOW_RESET_TIME = 1004;
 constexpr int IDC_TIME_FONT_SIZE = 1005;
 constexpr int IDC_TIME_FONT_SPIN = 1006;
-constexpr int kOptionsClientW = 260;
-constexpr int kOptionsClientH = 230;
+constexpr int IDC_GRAPH_COLOR = 1007;
+constexpr int IDC_GRAPH_THEME = 1008;
+constexpr int IDC_GRAPH_BAR = 1009;
+constexpr int IDC_GRAPH_SCROLL = 1010;
+constexpr int IDC_GRAPH_LOGIC_LABEL = 1011;
+constexpr int IDC_GRAPH_COLOR_LABEL = 1012;
+constexpr int IDC_GRAPH_TYPE_LABEL = 1013;
+constexpr int kOptionsClientW = 400;
+constexpr int kOptionsClientH = 292;
 
 class CriticalLock {
 public:
@@ -146,6 +157,7 @@ private:
     mutable SRWLOCK m_font_lock = SRWLOCK_INIT;
     mutable LOGFONTW m_normal_description{};
     mutable bool m_has_normal_description = false;
+    GraphHistory m_graph_history;
 };
 
 // 插件主类
@@ -222,6 +234,17 @@ public:
     bool ShowRemaining() const { return m_show_remaining; }
     bool GraphEnabled() const { return m_graph_enabled; }
     bool GraphRemaining() const { return m_graph_remaining; }
+    bool GraphScrolling() const { return m_graph_scrolling; }
+    bool GraphFollowsTheme() const { return m_graph_follow_theme; }
+    COLORREF CustomGraphColor() const { return m_graph_color; }
+    COLORREF ThemeColor() const {
+        if (m_app) return m_app->GetThemeColor() & 0xffffff;
+        DWORD argb = 0; BOOL opaque = FALSE;
+        if (SUCCEEDED(DwmGetColorizationColor(&argb, &opaque)))
+            return RGB((argb >> 16) & 255, (argb >> 8) & 255, argb & 255);
+        return GetSysColor(COLOR_HIGHLIGHT);
+    }
+    COLORREF GraphColor() const { return m_graph_follow_theme ? ThemeColor() : m_graph_color.load(); }
     bool ShowResetTime() const { return m_show_reset_time; }
     bool DrawingTaskbar() const { return m_drawing_taskbar; }
     int TimeFontSize() const { return m_time_font_size; }
@@ -347,12 +370,16 @@ private:
         m_refresh_ms = ReadRefreshMilliseconds(path);
         m_allow_local_fallback = GetPrivateProfileIntW(L"config", L"allow_local_fallback", 0, path.c_str()) != 0;
         m_graph_enabled = GetPrivateProfileIntW(L"config", L"graph_enabled", 0, path.c_str()) != 0;
+        m_graph_color = GetPrivateProfileIntW(L"config", L"graph_color", RGB(192, 192, 192), path.c_str()) & 0xffffff;
+        m_graph_follow_theme = GetPrivateProfileIntW(L"config", L"graph_follow_theme", 0, path.c_str()) != 0;
         m_show_reset_time = GetPrivateProfileIntW(L"config", L"show_reset_time", 0, path.c_str()) != 0;
         int time_points = GetPrivateProfileIntW(L"config", L"time_font_size", 10, path.c_str());
         m_time_font_size = time_points > 0 ? time_points : 10;
         wchar_t graph_mode[32]{};
         GetPrivateProfileStringW(L"config", L"graph_mode", L"remaining", graph_mode, 32, path.c_str());
         m_graph_remaining = _wcsicmp(graph_mode, L"used") != 0;
+        GetPrivateProfileStringW(L"config", L"graph_type", L"bar", graph_mode, 32, path.c_str());
+        m_graph_scrolling = _wcsicmp(graph_mode, L"scroll") == 0;
         wchar_t buf[MAX_PATH]{};
         DWORD n = GetPrivateProfileStringW(L"config", L"sessions_dir", L"", buf, MAX_PATH, path.c_str());
         if (n > 0)
@@ -398,6 +425,7 @@ private:
 
     static LRESULT CALLBACK OptionsProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void CreateOptionControls(HWND hWnd);
+    void EnableGraphControls(HWND hWnd);
     void SaveConfig() const;
 
     void FetchOnce()
@@ -475,6 +503,10 @@ private:
     bool m_allow_local_fallback = false;
     std::atomic<bool> m_graph_enabled{ false };
     std::atomic<bool> m_graph_remaining{ true };
+    std::atomic<bool> m_graph_scrolling{ false };
+    std::atomic<bool> m_graph_follow_theme{ false };
+    std::atomic<COLORREF> m_graph_color{ RGB(192, 192, 192) };
+    COLORREF m_option_graph_color = RGB(192, 192, 192);
     std::atomic<bool> m_show_reset_time{ false };
     std::atomic<int> m_time_font_size{ 10 };
     std::atomic<bool> m_drawing_taskbar{ true }, m_value_right_align{ false };
@@ -503,6 +535,9 @@ void CCodexUsagePlugin::SaveConfig() const
         return;
     WritePrivateProfileStringW(L"config", L"graph_enabled", m_graph_enabled ? L"1" : L"0", m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"graph_mode", m_graph_remaining ? L"remaining" : L"used", m_config_path.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_type", m_graph_scrolling ? L"scroll" : L"bar", m_config_path.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_follow_theme", m_graph_follow_theme ? L"1" : L"0", m_config_path.c_str());
+    WritePrivateProfileStringW(L"config", L"graph_color", std::to_wstring(m_graph_color.load()).c_str(), m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"show_reset_time", m_show_reset_time ? L"1" : L"0", m_config_path.c_str());
     WritePrivateProfileStringW(L"config", L"time_font_size", std::to_wstring(m_time_font_size.load()).c_str(), m_config_path.c_str());
 }
@@ -519,7 +554,7 @@ void CCodexUsagePlugin::CreateOptionControls(HWND hWnd)
     };
 
     HWND reset_time = mk(L"BUTTON", L"重置时间显示", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
-        16, 16, 232, 22, IDC_SHOW_RESET_TIME);
+        16, 16, 368, 22, IDC_SHOW_RESET_TIME);
     SendMessageW(reset_time, BM_SETCHECK, m_show_reset_time ? BST_CHECKED : BST_UNCHECKED, 0);
     mk(L"STATIC", L"字体大小:", SS_LEFT | SS_CENTERIMAGE, 32, 48, 72, 22, -1);
     HWND time_size = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"10",
@@ -536,19 +571,40 @@ void CCodexUsagePlugin::CreateOptionControls(HWND hWnd)
     EnableWindow(time_spin, m_show_reset_time);
 
     HWND chk = mk(L"BUTTON", L"启用资源占用图", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
-        16, 96, 228, 22, IDC_GRAPH_ENABLE);
+        16, 96, 368, 22, IDC_GRAPH_ENABLE);
     if (m_graph_enabled) SendMessageW(chk, BM_SETCHECK, BST_CHECKED, 0);
-    HWND r_remaining = mk(L"BUTTON", L"剩余额度", BS_AUTORADIOBUTTON | WS_GROUP,
-        32, 130, 212, 22, IDC_GRAPH_REMAINING);
+    mk(L"STATIC", L"占用图颜色：", SS_LEFT | SS_CENTERIMAGE, 32, 128, 74, 22, IDC_GRAPH_COLOR_LABEL);
+    mk(L"BUTTON", L"占用图颜色", BS_OWNERDRAW | WS_TABSTOP, 108, 128, 44, 22, IDC_GRAPH_COLOR);
+    HWND theme = mk(L"BUTTON", L"跟随 Windows 主题颜色", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
+        164, 128, 220, 22, IDC_GRAPH_THEME);
+    SendMessageW(theme, BM_SETCHECK, m_graph_follow_theme ? BST_CHECKED : BST_UNCHECKED, 0);
+    mk(L"STATIC", L"占用图类型：", SS_LEFT | SS_CENTERIMAGE, 32, 160, 74, 22, IDC_GRAPH_TYPE_LABEL);
+    HWND bar = mk(L"BUTTON", L"柱状图", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
+        108, 160, 76, 22, IDC_GRAPH_BAR);
+    HWND scroll = mk(L"BUTTON", L"横向滚动图", BS_AUTORADIOBUTTON | WS_TABSTOP,
+        196, 160, 132, 22, IDC_GRAPH_SCROLL);
+    SendMessageW(m_graph_scrolling ? scroll : bar, BM_SETCHECK, BST_CHECKED, 0);
+    mk(L"STATIC", L"数据逻辑：", SS_LEFT | SS_CENTERIMAGE, 32, 192, 74, 22, IDC_GRAPH_LOGIC_LABEL);
+    HWND r_remaining = mk(L"BUTTON", L"剩余额度", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
+        108, 192, 220, 22, IDC_GRAPH_REMAINING);
     HWND r_used = mk(L"BUTTON", L"已用额度", BS_AUTORADIOBUTTON,
-        32, 156, 212, 22, IDC_GRAPH_USED);
+        108, 220, 220, 22, IDC_GRAPH_USED);
     SendMessageW(m_graph_remaining ? r_remaining : r_used, BM_SETCHECK, BST_CHECKED, 0);
-    EnableWindow(r_remaining, m_graph_enabled);
-    EnableWindow(r_used, m_graph_enabled);
+    EnableGraphControls(hWnd);
 
     mk(L"BUTTON", L"确定", BS_DEFPUSHBUTTON,
         (kOptionsClientW - 75) / 2, kOptionsClientH - 14 - 25, 75, 25, IDOK);
     SendMessageW(hWnd, DM_SETDEFID, IDOK, 0);
+}
+
+void CCodexUsagePlugin::EnableGraphControls(HWND window) {
+    const BOOL enabled = SendDlgItemMessageW(window, IDC_GRAPH_ENABLE, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    for (int id : {IDC_GRAPH_THEME, IDC_GRAPH_BAR, IDC_GRAPH_SCROLL, IDC_GRAPH_REMAINING, IDC_GRAPH_USED,
+        IDC_GRAPH_COLOR_LABEL, IDC_GRAPH_TYPE_LABEL, IDC_GRAPH_LOGIC_LABEL})
+        EnableWindow(GetDlgItem(window, id), enabled);
+    const bool follow = SendDlgItemMessageW(window, IDC_GRAPH_THEME, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    EnableWindow(GetDlgItem(window, IDC_GRAPH_COLOR), enabled && !follow);
+    InvalidateRect(GetDlgItem(window, IDC_GRAPH_COLOR), nullptr, TRUE);
 }
 
 LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -575,6 +631,9 @@ LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wPar
                 if (!valid_size || time_points <= 0) time_points = self->m_time_font_size;
                 self->m_graph_enabled = SendMessageW(GetDlgItem(hWnd, IDC_GRAPH_ENABLE), BM_GETCHECK, 0, 0) == BST_CHECKED;
                 self->m_graph_remaining = SendMessageW(GetDlgItem(hWnd, IDC_GRAPH_REMAINING), BM_GETCHECK, 0, 0) == BST_CHECKED;
+                self->m_graph_scrolling = SendDlgItemMessageW(hWnd, IDC_GRAPH_SCROLL, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                self->m_graph_follow_theme = SendDlgItemMessageW(hWnd, IDC_GRAPH_THEME, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                self->m_graph_color = self->m_option_graph_color;
                 self->m_show_reset_time = SendMessageW(GetDlgItem(hWnd, IDC_SHOW_RESET_TIME), BM_GETCHECK, 0, 0) == BST_CHECKED;
                 self->m_time_font_size = static_cast<int>(time_points);
                 self->SaveConfig();
@@ -587,9 +646,17 @@ LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wPar
             }
             else if (id == IDC_GRAPH_ENABLE)
             {
-                BOOL enabled = SendMessageW(GetDlgItem(hWnd, IDC_GRAPH_ENABLE), BM_GETCHECK, 0, 0) == BST_CHECKED;
-                EnableWindow(GetDlgItem(hWnd, IDC_GRAPH_REMAINING), enabled);
-                EnableWindow(GetDlgItem(hWnd, IDC_GRAPH_USED), enabled);
+                self->EnableGraphControls(hWnd);
+            }
+            else if (id == IDC_GRAPH_THEME)
+            {
+                self->EnableGraphControls(hWnd);
+            }
+            else if (id == IDC_GRAPH_COLOR && HIWORD(wParam) == BN_CLICKED)
+            {
+                COLORREF selected = self->m_option_graph_color;
+                if (ShowGraphColorDialog(hWnd, selected)) self->m_option_graph_color = selected;
+                InvalidateRect(GetDlgItem(hWnd, IDC_GRAPH_COLOR), nullptr, TRUE);
             }
             else if (id == IDC_SHOW_RESET_TIME)
             {
@@ -599,6 +666,27 @@ LRESULT CALLBACK CCodexUsagePlugin::OptionsProc(HWND hWnd, UINT msg, WPARAM wPar
             }
         }
         return 0;
+    case WM_DRAWITEM:
+        if (self) {
+            const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+            if (item && item->CtlID == IDC_GRAPH_COLOR) {
+                const bool follow = SendDlgItemMessageW(hWnd, IDC_GRAPH_THEME, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                const COLORREF color = follow ? self->ThemeColor() : self->m_option_graph_color;
+                const int saved = SaveDC(item->hDC);
+                SetDCBrushColor(item->hDC, color);
+                FillRect(item->hDC, &item->rcItem, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+                RECT edge = item->rcItem;
+                DrawEdge(item->hDC, &edge, EDGE_SUNKEN, BF_RECT);
+                if (item->itemState & ODS_FOCUS) { InflateRect(&edge, -3, -3); DrawFocusRect(item->hDC, &edge); }
+                if (saved) RestoreDC(item->hDC, saved);
+                return TRUE;
+            }
+        }
+        break;
+    case WM_THEMECHANGED:
+    case WM_DWMCOLORIZATIONCOLORCHANGED:
+        if (self) InvalidateRect(GetDlgItem(hWnd, IDC_GRAPH_COLOR), nullptr, TRUE);
+        break;
     case WM_CLOSE:
         DestroyWindow(hWnd);
         return 0;
@@ -612,6 +700,7 @@ ITMPlugin::OptionReturn CCodexUsagePlugin::ShowOptionsDialog(void* hParent)
 {
     HWND parent = static_cast<HWND>(hParent);
     m_option_result = OR_OPTION_UNCHANGED;
+    m_option_graph_color = m_graph_color;
     m_dlg_dpi = (m_app != nullptr) ? m_app->GetDPI(ITrafficMonitor::DPI_MAIN_WND) : 96;
     using GetWindowDpi = UINT(WINAPI*)(HWND);
     auto get_window_dpi = reinterpret_cast<GetWindowDpi>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
@@ -621,18 +710,14 @@ ITMPlugin::OptionReturn CCodexUsagePlugin::ShowOptionsDialog(void* hParent)
     INITCOMMONCONTROLSEX common_controls{sizeof(common_controls), ICC_UPDOWN_CLASS};
     InitCommonControlsEx(&common_controls);
 
-    static bool registered = false;
-    if (!registered)
-    {
-        WNDCLASSEXW wc{ sizeof(wc) };
-        wc.lpfnWndProc = &CCodexUsagePlugin::OptionsProc;
-        wc.hInstance = g_hModule;
-        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW
-        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-        wc.lpszClassName = L"CodexUsageOptionsWnd";
-        RegisterClassExW(&wc);
-        registered = true;
-    }
+    WNDCLASSEXW wc{ sizeof(wc) };
+    wc.lpfnWndProc = &CCodexUsagePlugin::OptionsProc;
+    wc.hInstance = g_hModule;
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"CodexUsageOptionsWnd";
+    if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        return OR_OPTION_NOT_PROVIDED;
 
     auto S = [this](int v) { return v * m_dlg_dpi / 96; };
     const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
@@ -664,8 +749,10 @@ ITMPlugin::OptionReturn CCodexUsagePlugin::ShowOptionsDialog(void* hParent)
         L"CodexUsageOptionsWnd", L"Codex 额度插件设置",
         style, x, y, w, h,
         parent, nullptr, g_hModule, this);
-    if (hWnd == nullptr)
+    if (hWnd == nullptr) {
+        UnregisterClassW(wc.lpszClassName, g_hModule);
         return OR_OPTION_NOT_PROVIDED;
+    }
 
     if (parent != nullptr)
         EnableWindow(parent, FALSE);
@@ -692,6 +779,9 @@ ITMPlugin::OptionReturn CCodexUsagePlugin::ShowOptionsDialog(void* hParent)
         EnableWindow(parent, TRUE);
         SetForegroundWindow(parent);
     }
+    // A DLL's window classes otherwise survive FreeLibrary with a dangling
+    // window-procedure address. Keep this class scoped to the modal window.
+    UnregisterClassW(wc.lpszClassName, g_hModule);
     return m_option_result;
 }
 
@@ -779,12 +869,16 @@ void CQuotaItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
     SetBkMode(dc, TRANSPARENT);
     SetTextAlign(dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
     if (plugin.GraphEnabled() && plugin.DrawingTaskbar() && valid && window.valid) {
+        const ULONGLONG now = GetTickCount64();
+        m_graph_history.Record(now, window.used_percent);
         const double percent = plugin.GraphRemaining() ? 100.0 - window.used_percent : window.used_percent;
         const int filled = static_cast<int>(w * (std::max)(0.0, (std::min)(percent, 100.0)) / 100.0);
-        if (filled > 0) {
-            // Muted solid colors keep host text readable on light and dark
-            // taskbars. Stock DC_BRUSH needs no allocation or deletion.
-            SetDCBrushColor(dc, dark_mode ? RGB(44, 75, 96) : RGB(211, 232, 246));
+        SetDCBrushColor(dc, plugin.GraphColor());
+        if (plugin.GraphScrolling()) {
+            RECT area{x, y, x + w, y + h};
+            m_graph_history.Draw(dc, area, now, plugin.GraphRemaining());
+        }
+        else if (filled > 0) {
             RECT fill{x, y, x + filled, y + h};
             FillRect(dc, &fill, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
@@ -836,6 +930,9 @@ extern "C" __declspec(dllexport) ITMPlugin* TMPluginGetInstance()
     return &CCodexUsagePlugin::Instance();
 }
 
+void InitializePluginModule(HMODULE module) { g_hModule = module; }
+
+#ifndef CODEX_USE_MFC
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH)
@@ -844,3 +941,4 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
     }
     return TRUE;
 }
+#endif
